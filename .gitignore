@@ -16,3 +16,6 @@ src/generated
 samples
 
 .claude
+
+# written by npm run smoke:shots
+test-screenshots

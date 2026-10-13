@@ -11,7 +11,8 @@
     "test": "vitest run",
     "tauri": "tauri",
     "samples": "node scripts/make-samples.mjs",
-    "smoke": "node scripts/smoke-test.mjs"
+    "smoke": "node scripts/smoke-test.mjs",
+    "smoke:shots": "node scripts/smoke-test.mjs --screenshots"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",

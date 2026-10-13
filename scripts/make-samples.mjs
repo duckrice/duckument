@@ -123,8 +123,8 @@ async function fonts() {
   if (!existsSync(`${dir}/timesi.ttf`)) return;
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
-  const page = doc.addPage([595, 420]);
-  let y = 380;
+  const page = doc.addPage([595, 520]);
+  let y = 480;
   const embedded = async (file, customName, lines) => {
     const font = await doc.embedFont(readFileSync(`${dir}/${file}`), { subset: true, customName });
     for (const line of lines) {
@@ -146,6 +146,11 @@ async function fonts() {
   };
   byName("TimesNewRomanPS-BoldItalicMT", "Named only, bold italic Times New Roman");
   byName("TimesNewRoman,Italic", "Named only, italic with a comma");
+  byName("TimesNewRomanPS-ItalicMT", "Named only, the usual italic name");
+  byName("Times New Roman,Italic", "Named only, with spaces in the name");
+  y -= 12;
+  await embedded("timesi.ttf", undefined, ["Embedded under its real name"]);
+  page.drawText("One of the standard fonts, Times-Italic", { x: 40, y, size: 13, font: await doc.embedFont(StandardFonts.TimesRomanItalic) });
   writeFileSync(join(out, "fonts.pdf"), await doc.save());
 }
 

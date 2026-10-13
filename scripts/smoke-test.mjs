@@ -4,8 +4,11 @@
 // text, the native file commands, and what ends up in a saved PDF.
 //
 //   npm run samples && npm run tauri build -- --no-bundle && npm run smoke
+//
+// Add `-- --screenshots` to also save pictures of the app along the way, into
+// test-screenshots/ (or `-- --screenshots=some/folder`).
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +21,14 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Its own browser profile: the test then works while the app is open for real
 // use, and doesn't touch the signatures and settings saved there.
 const profile = mkdtempSync(join(tmpdir(), "freepdfeditor-smoke-"));
+
+const shotsFlag = process.argv.find((arg) => arg === "--screenshots" || arg.startsWith("--screenshots="));
+const shotsDir = shotsFlag ? (shotsFlag.split("=")[1] ?? join(root, "test-screenshots")) : null;
+let shots = 0;
+if (shotsDir) {
+  rmSync(shotsDir, { recursive: true, force: true });
+  mkdirSync(shotsDir, { recursive: true });
+}
 
 let failures = 0;
 function check(name, ok, detail = "") {
@@ -85,6 +96,23 @@ async function session(file, port, run) {
       await app.mouse("mousePressed", x, y);
       await app.mouse("mouseReleased", x, y);
     },
+    /** Presses at the first point and moves through the rest, like drawing with a pen. */
+    async stroke(points) {
+      await app.mouse("mouseMoved", points[0][0], points[0][1], { buttons: 0 });
+      await app.mouse("mousePressed", points[0][0], points[0][1]);
+      for (const [x, y] of points.slice(1)) await app.mouse("mouseMoved", x, y);
+      await app.mouse("mouseReleased", ...points[points.length - 1]);
+    },
+    /** Saves a picture of the window when screenshots were asked for. */
+    async shoot(name) {
+      if (!shotsDir) return;
+      await sleep(350);
+      const { result } = await send("Page.captureScreenshot", { format: "png" });
+      const file = `${String(++shots).padStart(2, "0")}-${name}.png`;
+      writeFileSync(join(shotsDir, file), Buffer.from(result.data, "base64"));
+    },
+    scrollTo: (top) => app.evaluate(`document.querySelector(".viewer").scrollTo(0, ${top})`),
+    pageBox: () => app.evaluate(`(() => { const r = document.querySelector(".page").getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; })()`),
     async drag(x1, y1, x2, y2) {
       await app.mouse("mouseMoved", x1, y1, { buttons: 0 });
       await app.mouse("mousePressed", x1, y1);
@@ -133,6 +161,7 @@ async function session(file, port, run) {
   };
   await send("Runtime.enable");
   await send("Log.enable");
+  await send("Page.enable");
   try {
     await app.waitFor(`!!document.querySelector(".page canvas")`);
     await sleep(800);
@@ -163,6 +192,7 @@ await session(sample("form.pdf"), 9333, async (app) => {
     })()`),
   );
   check("shows fillable fields", (await app.count(".annotationLayer :is(input, textarea, select)")) === 7);
+  await app.shoot("fillable-form-opened");
 
   await app.clickOn(".annotationLayer input[type=text]");
   await app.type("Kari Nordmann");
@@ -187,6 +217,61 @@ await session(sample("form.pdf"), 9333, async (app) => {
   const before = await app.evaluate(`document.querySelector(".item.shape path").getAttribute("d")`);
   await app.drag(left + width * 0.7, top + 240, left + width * 0.6, top + 300);
   check("moves it by dragging", before !== (await app.evaluate(`document.querySelector(".item.shape path").getAttribute("d")`)));
+
+  await app.tool("Arrow");
+  await app.drag(left + width * 0.93, top + 470, left + width * 0.8, top + 400);
+  await app.tool("Ellipse");
+  await app.drag(left + width * 0.7, top + 520, left + width * 0.9, top + 580);
+  await app.tool("Check mark");
+  await app.clickOn(".annotationLayer input[type=checkbox]");
+  check("adds an arrow, an ellipse and a check mark", (await app.count(".item.shape")) === 4);
+  await app.key(...ESC);
+  await app.shoot("field-text-and-shapes-added");
+
+  // ---- signing: drawn, remembered, and typed ----
+  await app.tool("Sign");
+  check("opens the signature dialog", await app.waitFor(`!!document.querySelector("dialog.sig-dialog[open]")`, 3000));
+  const [padX, padY, padW, padH] = await app.center(".sig-pad");
+  const onPad = (fx, fy) => [padX + padW * (fx - 0.5), padY + padH * (fy - 0.5)];
+  const loops = [];
+  for (let i = 0; i <= 60; i++) {
+    const t = i / 60;
+    loops.push(onPad(0.15 + t * 0.6 + 0.05 * Math.sin(t * 18), 0.6 - 0.3 * Math.sin(t * 9) * (1 - t * 0.5)));
+  }
+  await app.stroke(loops);
+  await app.stroke([onPad(0.2, 0.8), onPad(0.5, 0.78), onPad(0.8, 0.82)]);
+  await app.shoot("signature-drawn");
+  await app.clickOn(".sig-dialog .btn.primary");
+  check("goes on to placing the signature", (await app.evaluate(`document.querySelector(".viewer").dataset.tool`)) === "place");
+
+  // The sample's signature line is 246 points above the bottom of an 842-point page.
+  const placeAtLine = async (lineFromBottom, across) => {
+    await app.scrollTo(100000);
+    await sleep(900);
+    const [pl, pt, pw, ph] = await app.pageBox();
+    await app.click(pl + pw * across, pt + ph * (1 - (lineFromBottom + 16) / 842));
+  };
+  await placeAtLine(246, 0.42);
+  check("places the signature on the page", (await app.count(".item.image")) === 1);
+  check("remembers it for next time", (await app.evaluate(`JSON.parse(localStorage.getItem("freepdfeditor.signatures") ?? "[]").length`)) === 1);
+
+  await app.tool("Sign");
+  check("offers the remembered signature", (await app.count(".sign-menu:not([hidden]) .sign-pick")) === 1);
+  await app.shoot("remembered-signature-menu");
+  await app.clickOn(".sign-menu .menu-item");
+  await app.waitFor(`!!document.querySelector("dialog.sig-dialog[open]")`, 3000);
+  await app.clickOn(".sig-dialog .tab", 1);
+  await app.clickOn(".sig-name");
+  await app.type("Kari Nordmann");
+  await app.clickOn(".sig-font", 1);
+  await app.shoot("signature-typed");
+  await app.clickOn(".sig-dialog .btn.primary");
+  await placeAtLine(196, 0.38);
+  check("places a typed signature too", (await app.count(".item.image")) === 2);
+  await app.key(...ESC);
+  await app.shoot("signed");
+  await app.scrollTo(0);
+  await sleep(600);
 
   const scrolled = await app.evaluate(`document.querySelector(".viewer").scrollTop`);
   await app.wheel(left + 50, top + 300, 240);
@@ -228,6 +313,11 @@ await session(sample("letter.pdf"), 9334, async (app) => {
   await sleep(300);
   const kinds = await app.evaluate(`(() => { const o = {}; for (const el of document.querySelectorAll(".blank")) o[el.classList[1]] = (o[el.classList[1]] ?? 0) + 1; return o; })()`);
   check("finds the underlines, boxes and tick boxes", kinds.line === 6 && kinds.box === 10 && kinds.checkbox === 3, JSON.stringify(kinds));
+  await app.scrollTo(0);
+  await app.shoot("blanks-found-top");
+  await app.scrollTo(620);
+  await sleep(900);
+  await app.shoot("blanks-found-lower");
 
   await app.clickOn(".blank.line", 0);
   await app.type("Kari");
@@ -245,6 +335,7 @@ await session(sample("letter.pdf"), 9334, async (app) => {
   check("ticks a detected tick box", (await app.evaluate(`window.__fpe.store.items.filter((i) => i.type === "check").length`)) === 1);
   await app.clickOn(".blank.checkbox", 1);
   check("and unticks it again", (await app.evaluate(`window.__fpe.store.items.filter((i) => i.type === "check").length`)) === 0);
+  await app.clickOn(".blank.checkbox", 1);
 
   await app.tool("Edit text");
   await app.waitFor(`document.querySelectorAll(".run").length > 0`);
@@ -266,6 +357,13 @@ await session(sample("letter.pdf"), 9334, async (app) => {
   await app.key(...ESC);
   await app.key(...ESC);
 
+  await app.scrollTo(0);
+  await sleep(600);
+  await app.shoot("blanks-filled-and-text-edited-top");
+  await app.scrollTo(620);
+  await sleep(900);
+  await app.shoot("blanks-filled-lower");
+
   const edits = await app.evaluate(`window.__fpe.store.items.filter((i) => i.cover).map((i) => ({ text: i.text, font: i.font, size: i.size, bold: i.bold, color: i.color, cover: i.cover.color }))`);
   check("leaves text alone when it was opened but not changed", edits.length === 2, `${edits.length} replacements`);
   check("keeps the size, weight and font of edited text", edits[0]?.font === "calibri" && edits[0]?.size === 12 && !edits[0]?.bold && edits[1]?.size === 24 && edits[1]?.bold, JSON.stringify(edits));
@@ -282,6 +380,7 @@ await session(sample("letter.pdf"), 9334, async (app) => {
 
 await session(sample("fonts.pdf"), 9336, async (app) => {
   await app.debugHandle();
+  await app.shoot("fonts-original");
   await app.tool("Edit text");
   await app.waitFor(`document.querySelectorAll(".run").length > 0`);
   await sleep(300);
@@ -301,9 +400,13 @@ await session(sample("fonts.pdf"), 9336, async (app) => {
     ...Array(2).fill(/^calibri bold$/),
     ...Array(2).fill(/^(sans|arial) italic$/),
     /^timesnewroman bold italic$/,
-    /^timesnewroman italic$/,
+    ...Array(4).fill(/^timesnewroman italic$/),
+    /^serif italic$/,
   ];
-  check("edited text keeps its font and style under made-up font names", got.length === expected.length && expected.every((want, i) => want.test(got[i])), got.join(", "));
+  check("edited text keeps its font and style, however the PDF stores the font", got.length === expected.length && expected.every((want, i) => want.test(got[i])), got.join(", "));
+  await app.key(...ESC);
+  await app.scrollTo(0);
+  await app.shoot("fonts-after-editing-every-line");
 
   // Changing the font by hand afterwards still works.
   await app.tool("Select");
@@ -312,6 +415,20 @@ await session(sample("fonts.pdf"), 9336, async (app) => {
   await app.clickOn(".props .tb.bold");
   const changed = await app.evaluate(`(() => { const i = window.__fpe.store.items.find((item) => item.cover); return { font: i.font, bold: i.bold, italic: i.italic }; })()`);
   check("the font of edited text can be changed from the toolbar", style(changed) === "georgia bold italic", style(changed));
+  check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
+});
+
+// ---- a text-heavy document: nothing but the real blanks ---------------------
+
+await session(sample("flat.pdf"), 9337, async (app) => {
+  await app.debugHandle();
+  await app.tool("Add text");
+  await app.waitFor(`window.__fpe.viewer.pages[0].blanks !== null`);
+  const found = await app.evaluate(`window.__fpe.viewer.pages[0].blanks.map((b) => b.kind).sort().join(",")`);
+  check("finds only the real blanks on a page full of text", found === "checkbox,line,line", found);
+  await app.scrollTo(520);
+  await sleep(900);
+  await app.shoot("text-heavy-page-blanks");
   check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
 });
 
@@ -325,6 +442,8 @@ await session(sample("fonts.pdf"), 9336, async (app) => {
     return item && page.commonObjs.has(item.fontName) ? page.commonObjs.get(item.fontName).name : null;
   };
   check("saved file has the filled-in text", ["Kari", "Nordmann", "Ola Nordmann", "Brother"].every((text) => fontOf(text) === "Helvetica"));
+  const ops = await page.getOperatorList();
+  check("saved file has the tick drawn in", ops.fnArray.filter((fn) => fn === pdfjs.OPS.constructPath).length > 0);
   check("saved file has the edited text in the document's font", /^Calibri-\d+$/.test(fontOf("Riverside Tennis Club, founded 1992 in Bergen") ?? ""), String(fontOf("Riverside Tennis Club, founded 1992 in Bergen")));
   check("including the bold heading", /^Calibri-Bold-\d+$/.test(fontOf("Søknad om medlemskap") ?? ""), String(fontOf("Søknad om medlemskap")));
   const grew = readFileSync(saved).length - readFileSync(sample("letter.pdf")).length;
@@ -333,10 +452,15 @@ await session(sample("fonts.pdf"), 9336, async (app) => {
 
 await session(saved, 9335, async (app) => {
   check("the saved file opens again", (await app.evaluate("document.title")).startsWith("freepdfeditor-smoke-saved.pdf"));
+  await app.shoot("saved-file-reopened-top");
+  await app.scrollTo(620);
+  await sleep(1200);
+  await app.shoot("saved-file-reopened-lower");
   check("no errors opening it", app.errors.length === 0, app.errors.join("; "));
 });
 rmSync(saved, { force: true });
 rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
 
+if (shotsDir) console.log(`\n${shots} screenshots saved to ${shotsDir}`);
 console.log(failures ? `\n${failures} check(s) failed` : "\nAll checks passed");
 process.exit(failures ? 1 : 0);
