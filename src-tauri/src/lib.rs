@@ -24,6 +24,19 @@ fn read_file(path: String) -> Result<Response, String> {
         .map_err(|err| format!("Could not read {path}: {err}"))
 }
 
+/// Reads a font from the Windows Fonts folder so it can be embedded in a saved
+/// PDF. Only a bare file name is accepted; this is not a way to read other files.
+#[tauri::command]
+fn read_system_font(file: String) -> Result<Response, String> {
+    if file.is_empty() || file.contains(['/', '\\', ':']) || file.contains("..") {
+        return Err(format!("Not a font file name: {file}"));
+    }
+    let windows = std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into());
+    fs::read(PathBuf::from(windows).join("Fonts").join(&file))
+        .map(Response::new)
+        .map_err(|err| format!("Could not read font {file}: {err}"))
+}
+
 /// Saves the request body to the path given in the `x-path` header (percent-encoded,
 /// since header values must be ASCII). The bytes travel as a raw body so large
 /// PDFs aren't serialised as JSON.
@@ -62,7 +75,12 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![startup_file, read_file, write_file])
+        .invoke_handler(tauri::generate_handler![
+            startup_file,
+            read_file,
+            read_system_font,
+            write_file
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

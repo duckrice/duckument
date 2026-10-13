@@ -14,8 +14,11 @@ import {
   type RenderTask,
 } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { detectBlanks, type Blank } from "./blanks";
 import { h } from "./dom";
 import type { Matrix } from "./export";
+import type { Box } from "./model";
+import { buildRuns, type TextRun } from "./textruns";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -27,6 +30,14 @@ const MAX_ZOOM = 5;
 const MAX_CANVAS_PIXELS = 4096 * 4096;
 /** Canvases further than this many pages from the current one are released. */
 const KEEP_PAGES = 8;
+/** Resolution, in pixels per point, of the picture blanks are looked for in. */
+const BLANK_SCAN_SCALE = 2;
+
+/**
+ * What the active tool wants to know about the visible pages: where their
+ * empty lines and boxes are, or where their text is.
+ */
+export type Assist = "blanks" | "runs" | null;
 
 const asset = (dir: string) => new URL(`pdfjs/${dir}/`, document.baseURI).href;
 
@@ -45,6 +56,11 @@ export interface PageView {
   index: number;
   el: HTMLElement;
   canvasWrap: HTMLElement;
+  /** Highlights for detected blanks and for editable text. */
+  blanksEl: HTMLElement;
+  runsEl: HTMLElement;
+  /** Patches that hide original text that has been replaced. */
+  covers: HTMLElement;
   items: HTMLElement;
   chrome: HTMLElement;
   /** Page size in points, as displayed. */
@@ -55,11 +71,18 @@ export interface PageView {
   /** Identifies the zoom and pixel density the current canvas was drawn for. */
   renderedKey: string;
   formsBuilt: boolean;
+  /** Areas taken by real form fields, in page points. */
+  widgets: Box[];
+  /** Null until looked for. */
+  blanks: Blank[] | null;
+  runs: TextRun[] | null;
 }
 
 export interface ViewerHooks {
   onView(): void;
   onFormEdit(): void;
+  /** Blanks have been found on a page. */
+  onBlanks(view: PageView): void;
   askPassword(retry: boolean): Promise<string | null>;
 }
 
@@ -78,6 +101,7 @@ export class Viewer {
   private generation = 0;
   private visible = new Set<PageView>();
   private rendering = false;
+  private assist: Assist = null;
   private renderTimer = 0;
   private observer: IntersectionObserver;
 
@@ -149,6 +173,8 @@ export class Viewer {
       standardFontDataUrl: asset("standard_fonts"),
       wasmUrl: asset("wasm"),
       iccUrl: asset("iccs"),
+      // Keeps the fonts' real names, which the Edit text tool matches against.
+      fontExtraProperties: true,
     });
     task.onPassword = (submit: (password: string) => void, reason: number) => {
       void this.hooks.askPassword(reason === PasswordResponses.INCORRECT_PASSWORD).then((password) => {
@@ -213,14 +239,20 @@ export class Viewer {
 
   private createPage(index: number, width: number, height: number): PageView {
     const canvasWrap = h("div", { class: "canvas-wrap" });
+    const blanksEl = h("div", { class: "blanks" });
+    const runsEl = h("div", { class: "runs" });
+    const covers = h("div", { class: "covers" });
     const items = h("div", { class: "items" });
     const chrome = h("div", { class: "chrome" });
-    const overlay = h("div", { class: "overlay" }, items, chrome);
+    const overlay = h("div", { class: "overlay" }, blanksEl, runsEl, covers, items, chrome);
     const el = h("div", { class: "page", "data-page": index }, canvasWrap, overlay);
     const view: PageView = {
       index,
       el,
       canvasWrap,
+      blanksEl,
+      runsEl,
+      covers,
       items,
       chrome,
       width: 0,
@@ -229,6 +261,9 @@ export class Viewer {
       task: null,
       renderedKey: "",
       formsBuilt: false,
+      widgets: [],
+      blanks: null,
+      runs: null,
     };
     this.setPageSize(view, width, height);
     return view;
@@ -376,7 +411,10 @@ export class Viewer {
         nextDistance = distance;
       }
     }
-    if (!next) return;
+    if (!next) {
+      void this.assistNext();
+      return;
+    }
 
     this.rendering = true;
     try {
@@ -435,9 +473,16 @@ export class Viewer {
     );
     if (!annotations.length || !this.pdf || view.pdfPage !== page) return;
 
+    const upright = page.getViewport({ scale: 1 });
+    view.widgets = annotations.map((annotation) => {
+      const [x1, y1] = upright.convertToViewportPoint(annotation.rect[0], annotation.rect[1]);
+      const [x2, y2] = upright.convertToViewportPoint(annotation.rect[2], annotation.rect[3]);
+      return { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) };
+    });
+
     const div = h("div", { class: "annotationLayer" });
     view.el.insertBefore(div, view.canvasWrap.nextSibling);
-    const viewport = page.getViewport({ scale: 1 }).clone({ dontFlip: true });
+    const viewport = upright.clone({ dontFlip: true });
     const annotationStorage = this.pdf.annotationStorage;
     const layer = new AnnotationLayer({
       div,
@@ -465,6 +510,147 @@ export class Viewer {
       hasJSActions: false,
       fieldObjects: null,
     });
+  }
+
+  // ---- help for the tools ---------------------------------------------------
+
+  /** Chooses what to work out about the visible pages while a tool is active. */
+  setAssist(assist: Assist) {
+    this.assist = assist;
+    if (assist) this.scheduleRender(0);
+  }
+
+  /** Runs once the visible pages are drawn: one page per call, nearest first. */
+  private async assistNext() {
+    const assist = this.assist;
+    if (!assist || this.rendering || !this.pdf) return;
+    let next: PageView | null = null;
+    for (const view of this.visible) {
+      const pending = assist === "blanks" ? view.blanks === null : view.runs === null;
+      const nearer = !next || Math.abs(view.index - this.currentPage) < Math.abs(next.index - this.currentPage);
+      if (pending && view.renderedKey && view.pdfPage && nearer) next = view;
+    }
+    if (!next) return;
+
+    const generation = this.generation;
+    this.rendering = true;
+    try {
+      if (assist === "blanks") await this.findBlanks(next, next.pdfPage!);
+      else await this.findRuns(next, next.pdfPage!);
+    } catch (error) {
+      if (generation === this.generation) {
+        console.error(`Could not analyse page ${next.index + 1}`, error);
+        if (assist === "blanks") next.blanks = [];
+        else next.runs = [];
+      }
+    } finally {
+      this.rendering = false;
+    }
+    void this.renderNext();
+  }
+
+  private async findBlanks(view: PageView, page: PDFPageProxy) {
+    const generation = this.generation;
+    const viewport = page.getViewport({ scale: BLANK_SCAN_SCALE });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    await page.render({ canvas, viewport, annotationMode: AnnotationMode.ENABLE_FORMS }).promise;
+    if (generation !== this.generation) return;
+
+    const pixels = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height);
+    const overlaps = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    // Real form fields already handle themselves.
+    view.blanks = detectBlanks(pixels, BLANK_SCAN_SCALE).filter(
+      (blank) => !view.widgets.some((widget) => overlaps(blank, widget)),
+    );
+    view.blanksEl.replaceChildren(
+      ...view.blanks.map((b) =>
+        h("div", { class: `blank ${b.kind}`, style: `left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px` }),
+      ),
+    );
+    this.hooks.onBlanks(view);
+  }
+
+  private async findRuns(view: PageView, page: PDFPageProxy) {
+    const generation = this.generation;
+    const content = await page.getTextContent();
+    if (generation !== this.generation) return;
+    view.runs = buildRuns(content.items, content.styles, page.getViewport({ scale: 1 }).transform);
+    view.runsEl.replaceChildren(
+      ...view.runs.map((r) =>
+        h("div", { class: "run", style: `left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px` }),
+      ),
+    );
+  }
+
+  /** The real name of a font used on a page ("ABCDEF+Calibri-Bold"), if pdf.js has loaded it. */
+  fontName(view: PageView, internalName: string): string {
+    try {
+      const objs = view.pdfPage?.commonObjs;
+      return (objs?.has(internalName) && (objs.get(internalName) as { name?: string }).name) || "";
+    } catch {
+      return "";
+    }
+  }
+
+  /**
+   * Looks at the rendered page inside `box` and returns its background colour
+   * and the colour of whatever is drawn on it (the text, typically).
+   */
+  sampleColors(view: PageView, box: Box): { background: string; ink: string } {
+    const fallback = { background: "#ffffff", ink: "#000000" };
+    const canvas = view.canvasWrap.querySelector("canvas");
+    if (!canvas) return fallback;
+    const k = canvas.width / view.width;
+    const x = Math.max(0, Math.floor(box.x * k));
+    const y = Math.max(0, Math.floor(box.y * k));
+    const w = Math.min(canvas.width - x, Math.ceil(box.w * k));
+    const height = Math.min(canvas.height - y, Math.ceil(box.h * k));
+    if (w < 2 || height < 2) return fallback;
+    const { data } = canvas.getContext("2d")!.getImageData(x, y, w, height);
+
+    // Background: the most common colour, counted in coarse buckets.
+    const buckets = new Map<number, [number, number, number, number]>();
+    for (let i = 0; i < data.length; i += 4) {
+      const key = ((data[i] >> 3) << 10) | ((data[i + 1] >> 3) << 5) | (data[i + 2] >> 3);
+      const bucket = buckets.get(key);
+      if (bucket) {
+        bucket[0] += data[i];
+        bucket[1] += data[i + 1];
+        bucket[2] += data[i + 2];
+        bucket[3]++;
+      } else buckets.set(key, [data[i], data[i + 1], data[i + 2], 1]);
+    }
+    let common: [number, number, number, number] = [255, 255, 255, 0];
+    for (const bucket of buckets.values()) if (bucket[3] > common[3]) common = bucket;
+    const bg = [common[0] / common[3], common[1] / common[3], common[2] / common[3]];
+
+    // Ink: the average of the pixels that differ most from the background,
+    // which leaves out the blended pixels along the edges of letters.
+    const distance = (i: number) =>
+      Math.abs(data[i] - bg[0]) + Math.abs(data[i + 1] - bg[1]) + Math.abs(data[i + 2] - bg[2]);
+    let far = 0;
+    for (let i = 0; i < data.length; i += 4) far = Math.max(far, distance(i));
+    const ink = [0, 0, 0];
+    let count = 0;
+    if (far > 60) {
+      for (let i = 0; i < data.length; i += 4) {
+        if (distance(i) >= far * 0.85) {
+          ink[0] += data[i];
+          ink[1] += data[i + 1];
+          ink[2] += data[i + 2];
+          count++;
+        }
+      }
+    }
+    const hex = (rgb: number[]) => {
+      // Rendering leaves black and white a shade off; put them back.
+      if (rgb.every((v) => v < 26)) return "#000000";
+      if (rgb.every((v) => v > 244)) return "#ffffff";
+      return "#" + rgb.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
+    };
+    return { background: hex(bg), ink: count ? hex(ink.map((v) => v / count)) : fallback.ink };
   }
 
   private releaseFarPages() {

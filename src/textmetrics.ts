@@ -1,18 +1,11 @@
-import { LINE_HEIGHT, type FontFamily, type ImageItem, type TextItem } from "./model";
-
-// The standard PDF fonts aren't installed as such; these system fonts share
-// their metrics, so text lands in the same place on screen and in the file.
-const CSS_FAMILY: Record<FontFamily, string> = {
-  sans: 'Arial, Helvetica, "Liberation Sans", sans-serif',
-  serif: '"Times New Roman", Times, "Liberation Serif", serif',
-  mono: '"Courier New", Courier, "Liberation Mono", monospace',
-};
+import { fontDef } from "./fonts";
+import { LINE_HEIGHT, type ImageItem, type TextItem } from "./model";
 
 type TextStyle = Pick<TextItem, "font" | "size" | "bold" | "italic">;
 
 export function cssFont(style: TextStyle, scale = 1): string {
   const variant = (style.italic ? "italic " : "") + (style.bold ? "bold " : "");
-  return `${variant}${style.size * scale}px/${LINE_HEIGHT} ${CSS_FAMILY[style.font]}`;
+  return `${variant}${style.size * scale}px/${LINE_HEIGHT} ${fontDef(style.font).css}`;
 }
 
 const baselines = new Map<string, number>();

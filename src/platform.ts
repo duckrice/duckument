@@ -82,6 +82,21 @@ export async function writePath(path: string, bytes: Uint8Array): Promise<void> 
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
+const systemFonts = new Map<string, Promise<Uint8Array | null>>();
+
+/** Reads a font file from the Windows Fonts folder; null when it isn't installed. */
+export function readSystemFont(file: string): Promise<Uint8Array | null> {
+  let font = systemFonts.get(file);
+  if (!font) {
+    font = invoke<ArrayBuffer>("read_system_font", { file }).then(
+      (buffer) => new Uint8Array(buffer),
+      () => null,
+    );
+    systemFonts.set(file, font);
+  }
+  return font;
+}
+
 export async function startupFile(): Promise<string | null> {
   return isDesktop ? invoke<string | null>("startup_file") : null;
 }

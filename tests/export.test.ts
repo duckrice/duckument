@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PDFDocument, degrees } from "pdf-lib";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
@@ -9,7 +10,7 @@ const PNG_1PX =
 const BASELINE = 11;
 
 async function open(bytes: Uint8Array) {
-  return pdfjs.getDocument({ data: bytes.slice(), useSystemFonts: false }).promise;
+  return pdfjs.getDocument({ data: bytes.slice(), useSystemFonts: false, fontExtraProperties: true }).promise;
 }
 
 async function sample(): Promise<Uint8Array> {
@@ -108,6 +109,49 @@ describe("addItemsToPdf", () => {
 
     const ops = await page.getOperatorList();
     expect(ops.fnArray).toContain(pdfjs.OPS.paintImageXObject);
+  });
+
+  const FONT_DIR = "C:/Windows/Fonts";
+
+  it.skipIf(!existsSync(`${FONT_DIR}/calibrib.ttf`))("embeds a system font and covers replaced text", async () => {
+    const original = await sample();
+    const source = await open(original);
+    const loaded: string[] = [];
+    const items: Item[] = [
+      {
+        id: "t",
+        type: "text",
+        page: 0,
+        x: 50,
+        y: 30,
+        text: "Søknad – æøå ÆØÅ",
+        font: "calibri",
+        size: 20,
+        bold: true,
+        italic: false,
+        color: "#000000",
+        cover: { x: 48, y: 28, w: 120, h: 24, color: "#ffffff" },
+      },
+      // Only a cover: the original text is being deleted.
+      { id: "d", type: "text", page: 0, x: 0, y: 0, text: "", font: "sans", size: 10, bold: false, italic: false, color: "#000000", cover: { x: 0, y: 0, w: 10, h: 10, color: "#ffeecc" } },
+    ];
+    const bytes = await addItemsToPdf(original, items, {
+      ...env(source),
+      async loadFont(file) {
+        loaded.push(file);
+        return new Uint8Array(readFileSync(`${FONT_DIR}/${file}`));
+      },
+    });
+    expect(loaded).toEqual(["calibrib.ttf"]);
+    // A subset is embedded, not the whole font file.
+    expect(bytes.length).toBeLessThan(original.length + 60_000);
+
+    const page = await (await open(bytes)).getPage(1);
+    const content = await page.getTextContent();
+    const run = content.items.find((r) => "str" in r && r.str.startsWith("Søknad")) as { str: string; fontName: string };
+    expect(run.str).toBe("Søknad – æøå ÆØÅ");
+    await page.getOperatorList();
+    expect(page.commonObjs.get(run.fontName).name).toMatch(/Calibri-Bold/);
   });
 
   it("returns the input untouched when there is nothing to add", async () => {

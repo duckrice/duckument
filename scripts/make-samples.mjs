@@ -1,8 +1,9 @@
 // Generates PDFs for trying the app during development:
 //   npm run samples, then open http://localhost:1420/?src=/samples/form.pdf
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, StandardFonts, degrees, rgb } from "pdf-lib";
 
 const out = join(dirname(fileURLToPath(import.meta.url)), "..", "samples");
@@ -66,6 +67,56 @@ async function flat() {
   writeFileSync(join(out, "flat.pdf"), await doc.save());
 }
 
+// A non-fillable form in a Windows font: blanks to detect and text to edit.
+async function letter() {
+  const fonts = "C:/Windows/Fonts";
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  const has = existsSync(`${fonts}/calibri.ttf`);
+  const regular = has ? await doc.embedFont(readFileSync(`${fonts}/calibri.ttf`)) : await doc.embedFont(StandardFonts.Helvetica);
+  const bold = has ? await doc.embedFont(readFileSync(`${fonts}/calibrib.ttf`)) : await doc.embedFont(StandardFonts.HelveticaBold);
+  const page = doc.addPage([595, 842]);
+  const black = rgb(0, 0, 0);
+
+  page.drawRectangle({ x: 0, y: 772, width: 595, height: 70, color: rgb(0.11, 0.25, 0.55) });
+  page.drawText("Membership application", { x: 50, y: 798, size: 24, font: bold, color: rgb(1, 1, 1) });
+  page.drawText("Riverside Tennis Club, founded 1987", { x: 50, y: 740, size: 12, font: regular });
+  page.drawText("Please complete this form in block letters and return it by 31 March.", { x: 50, y: 720, size: 11, font: regular, color: rgb(0.3, 0.3, 0.3) });
+
+  ["First name:", "Last name:", "Address:", "Email:"].forEach((label, i) => {
+    const y = 670 - i * 34;
+    page.drawText(label, { x: 50, y, size: 11, font: regular });
+    page.drawLine({ start: { x: 125, y: y - 2 }, end: { x: 420, y: y - 2 }, thickness: 0.6 });
+  });
+
+  page.drawText("Membership type", { x: 50, y: 520, size: 12, font: bold });
+  ["Adult", "Junior", "Family"].forEach((label, i) => {
+    const x = 50 + i * 110;
+    page.drawRectangle({ x, y: 492, width: 12, height: 12, borderWidth: 0.8, borderColor: black });
+    page.drawText(label, { x: x + 18, y: 494, size: 11, font: regular });
+  });
+
+  page.drawText("Emergency contacts", { x: 50, y: 450, size: 12, font: bold });
+  const cols = [50, 220, 390, 545];
+  for (let row = 0; row < 4; row++) {
+    const y = 420 - row * 24;
+    for (let c = 0; c < 3; c++) {
+      page.drawRectangle({ x: cols[c], y, width: cols[c + 1] - cols[c], height: 24, borderWidth: 0.6, borderColor: black });
+    }
+  }
+  ["Name", "Relationship", "Phone"].forEach((label, c) => page.drawText(label, { x: cols[c] + 6, y: 428, size: 10, font: bold }));
+
+  page.drawText("Anything we should know?", { x: 50, y: 310, size: 11, font: regular });
+  page.drawRectangle({ x: 50, y: 220, width: 495, height: 80, borderWidth: 0.6, borderColor: black });
+
+  page.drawText("Date:", { x: 50, y: 150, size: 11, font: regular });
+  page.drawLine({ start: { x: 85, y: 148 }, end: { x: 200, y: 148 }, thickness: 0.6 });
+  page.drawText("Signature:", { x: 250, y: 150, size: 11, font: regular });
+  page.drawLine({ start: { x: 305, y: 148 }, end: { x: 545, y: 148 }, thickness: 0.6 });
+  writeFileSync(join(out, "letter.pdf"), await doc.save());
+}
+
 await form();
 await flat();
+await letter();
 console.log(`Wrote samples to ${out}`);

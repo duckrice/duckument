@@ -1,5 +1,6 @@
 // Writes the user's additions into the PDF's page content.
 
+import fontkit from "@pdf-lib/fontkit";
 import {
   LineCapStyle,
   LineJoinStyle,
@@ -32,7 +33,8 @@ import {
   showText,
   stroke,
 } from "pdf-lib";
-import { LINE_HEIGHT, type FontFamily, type ImageItem, type Item, type TextItem } from "./model";
+import { fontDef, fontFile, type FontClass } from "./fonts";
+import { LINE_HEIGHT, type ImageItem, type Item, type TextItem } from "./model";
 import { paints, type Paint } from "./shapes";
 
 export type Matrix = [number, number, number, number, number, number];
@@ -45,8 +47,10 @@ export interface ExportEnv {
   pageTransform(page: number): Matrix | Promise<Matrix>;
   /** Distance from the top of a text item to the baseline of its first line. */
   baseline(item: TextItem): number;
-  /** Renders text the standard PDF fonts can't encode (emoji, non-Latin scripts) as a picture. */
+  /** Renders text the font can't encode (emoji, some scripts) as a picture. */
   rasterizeText?(item: TextItem): Promise<ImageItem | null>;
+  /** Reads a font file from the system's Fonts folder; null if it isn't there. */
+  loadFont?(file: string): Promise<Uint8Array | null>;
 }
 
 export class EncryptedPdfError extends Error {
@@ -55,7 +59,7 @@ export class EncryptedPdfError extends Error {
   }
 }
 
-const FONTS: Record<FontFamily, [StandardFonts, StandardFonts, StandardFonts, StandardFonts]> = {
+const STANDARD: Record<FontClass, [StandardFonts, StandardFonts, StandardFonts, StandardFonts]> = {
   // regular, bold, italic, bold italic
   sans: [
     StandardFonts.Helvetica,
@@ -119,15 +123,44 @@ function paintOps(p: Paint): PDFOperator[] {
 
 class Writer {
   private fonts = new Map<StandardFonts, PDFFont>();
+  /** Embedded system fonts by file name; null for files that couldn't be used. */
+  private systemFonts = new Map<string, PDFFont | null>();
   private images = new Map<string, PDFImage>();
+  private charsets = new Map<PDFFont, Set<number>>();
 
   constructor(
     private doc: PDFDocument,
     private env: ExportEnv,
   ) {}
 
+  private async systemFont(file: string): Promise<PDFFont | null> {
+    let font = this.systemFonts.get(file);
+    if (font === undefined) {
+      font = null;
+      try {
+        const bytes = await this.env.loadFont!(file);
+        if (bytes) {
+          if (!this.systemFonts.size) this.doc.registerFontkit(fontkit);
+          // Only the characters actually used are embedded. Ligatures are off
+          // to match the screen, where they are off too (see styles.css).
+          font = await this.doc.embedFont(bytes, { subset: true, features: { liga: false, clig: false } });
+        }
+      } catch (error) {
+        console.warn(`Could not embed ${file}`, error);
+      }
+      this.systemFonts.set(file, font);
+    }
+    return font;
+  }
+
   private async font(item: TextItem): Promise<PDFFont> {
-    const name = FONTS[item.font][(item.bold ? 1 : 0) + (item.italic ? 2 : 0)];
+    const def = fontDef(item.font);
+    const file = fontFile(def, item.bold, item.italic);
+    if (file && this.env.loadFont) {
+      const font = await this.systemFont(file);
+      if (font) return font;
+    }
+    const name = STANDARD[def.fallback][(item.bold ? 1 : 0) + (item.italic ? 2 : 0)];
     let font = this.fonts.get(name);
     if (!font) {
       font = await this.doc.embedFont(name);
@@ -159,7 +192,8 @@ class Writer {
 
   private async textOps(page: PDFPage, item: TextItem): Promise<PDFOperator[]> {
     const font = await this.font(item);
-    const known = new Set(font.getCharacterSet());
+    let known = this.charsets.get(font);
+    if (!known) this.charsets.set(font, (known = new Set(font.getCharacterSet())));
     const lines = item.text.split("\n");
     const encodable = lines.every((line) => [...line].every((ch) => known.has(ch.codePointAt(0)!)));
     if (!encodable) {
@@ -190,9 +224,27 @@ class Writer {
 
   async write(page: PDFPage, index: number, items: Item[]) {
     const ops: PDFOperator[] = [];
+    // Everything that hides original text goes down first, so one replacement's
+    // cover can't paint over the new text of its neighbour.
     for (const item of items) {
-      if (item.type === "text") ops.push(...(await this.textOps(page, item)));
-      else if (item.type === "image") ops.push(...(await this.imageOps(page, item)));
+      if (item.type !== "text" || !item.cover) continue;
+      const { x, y, w, h, color: fillColor } = item.cover;
+      ops.push(
+        pushGraphicsState(),
+        setFillingColor(color(fillColor)),
+        moveTo(x, y),
+        lineTo(x + w, y),
+        lineTo(x + w, y + h),
+        lineTo(x, y + h),
+        closePath(),
+        fill(),
+        popGraphicsState(),
+      );
+    }
+    for (const item of items) {
+      if (item.type === "text") {
+        if (item.text) ops.push(...(await this.textOps(page, item)));
+      } else if (item.type === "image") ops.push(...(await this.imageOps(page, item)));
       else for (const p of paints(item)) ops.push(...paintOps(p));
     }
     if (!ops.length) return;

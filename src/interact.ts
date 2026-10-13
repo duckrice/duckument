@@ -1,6 +1,8 @@
 // Pointer and keyboard handling for adding, moving and resizing items.
 
+import { blankAt, type Blank } from "./blanks";
 import { h, isTyping } from "./dom";
+import { guessFont, isInstalled } from "./fonts";
 import {
   LINE_HEIGHT,
   isLine,
@@ -12,8 +14,11 @@ import {
   type TextItem,
 } from "./model";
 import type { Overlay } from "./overlay";
+import { isDesktop } from "./platform";
 import type { Settings } from "./settings";
 import type { Store, Tool } from "./store";
+import { baseline, cssFont } from "./textmetrics";
+import { runAt, type TextRun } from "./textruns";
 import type { PageView, Viewer } from "./viewer";
 
 interface Point {
@@ -30,6 +35,7 @@ type Drag =
 const TOOL_KEYS: Record<string, Tool> = {
   v: "select",
   t: "text",
+  e: "edit",
   r: "rect",
   o: "ellipse",
   l: "line",
@@ -92,6 +98,23 @@ function penItem(base: Omit<PenItem, "x" | "y" | "w" | "h" | "points">, absolute
   return { ...base, x: minX, y: minY, w, h: height, points };
 }
 
+let measure: CanvasRenderingContext2D | null = null;
+
+/** The character position in a text item's first line nearest to page coordinate `x`. */
+function caretIndex(item: TextItem, x: number): number {
+  measure ??= document.createElement("canvas").getContext("2d")!;
+  measure.font = cssFont(item);
+  const line = item.text.split("\n")[0];
+  const target = x - item.x;
+  let before = 0;
+  for (let i = 1; i <= line.length; i++) {
+    const width = measure.measureText(line.slice(0, i)).width;
+    if (width > target) return target - before < width - target ? i - 1 : i;
+    before = width;
+  }
+  return line.length;
+}
+
 export class Interaction {
   tool: Tool = "select";
 
@@ -122,6 +145,7 @@ export class Interaction {
     });
     window.addEventListener("keydown", (event) => this.onKeyDown(event));
     window.addEventListener("paste", (event) => this.onPaste(event));
+    overlay.onTab = (item, back) => this.tabFrom(item, back);
     root.dataset.tool = this.tool;
   }
 
@@ -135,6 +159,7 @@ export class Interaction {
     if (tool !== "select") this.store.select(null);
     this.tool = tool;
     this.viewer.container.dataset.tool = tool;
+    this.viewer.setAssist(tool === "text" || tool === "check" || tool === "cross" ? "blanks" : tool === "edit" ? "runs" : null);
     this.onToolChange();
   }
 
@@ -206,26 +231,40 @@ export class Interaction {
           else field.focus();
           return;
         }
-        const { font, fontSize: size, bold, italic, textColor: color } = this.settings;
-        const item: TextItem = {
-          ...base,
-          type: "text",
-          x: p.x,
-          y: p.y - (size * LINE_HEIGHT) / 2,
-          text: "",
-          font,
-          size,
-          bold,
-          italic,
-          color,
-        };
-        this.store.add(item);
-        this.overlay.startEdit(item.id);
+        const blank = blankAt(view.blanks, p.x, p.y);
+        if (blank?.kind === "checkbox") this.toggleMark(view, blank, "check");
+        else if (blank) this.fillBlank(view, blank);
+        else this.newText(view, p.x, p.y - (this.settings.fontSize * LINE_HEIGHT) / 2, this.settings.fontSize);
+        return;
+      }
+
+      case "edit": {
+        // Text that was replaced earlier is edited again, not replaced twice.
+        const replaced = this.store.items.find(
+          (item): item is TextItem =>
+            item.type === "text" &&
+            !!item.cover &&
+            item.page === view.index &&
+            p.x >= item.cover.x &&
+            p.x <= item.cover.x + item.cover.w &&
+            p.y >= item.cover.y &&
+            p.y <= item.cover.y + item.cover.h,
+        );
+        const target = hit?.type === "text" ? hit : replaced;
+        const run = target ? null : runAt(view.runs, p.x, p.y);
+        if (target) this.overlay.startEdit(target.id, caretIndex(target, p.x));
+        else if (run) this.editRun(view, run, p.x);
+        else this.store.select(null);
         return;
       }
 
       case "check":
       case "cross": {
+        const box = blankAt(view.blanks, p.x, p.y);
+        if (box?.kind === "checkbox") {
+          this.toggleMark(view, box, this.tool);
+          return;
+        }
         const size = this.markSize;
         this.store.add({
           ...base,
@@ -271,6 +310,99 @@ export class Interaction {
     }
     this.store.select(null);
     this.begin(event, { kind: "create", view, start: p, id: base.id });
+  }
+
+  private newText(view: PageView, x: number, y: number, size: number) {
+    const { font, bold, italic, textColor: color } = this.settings;
+    const item: TextItem = { id: newId(), page: view.index, type: "text", x, y, text: "", font, size, bold, italic, color };
+    this.store.add(item);
+    this.overlay.startEdit(item.id);
+  }
+
+  /** Starts typing in a detected blank, or carries on with what is already written there. */
+  private fillBlank(view: PageView, blank: Blank) {
+    const existing = this.store.items.find(
+      (item): item is TextItem =>
+        item.type === "text" && !item.cover && item.page === view.index && blankAt([blank], item.x + 1, item.y + item.size * 0.6) !== null,
+    );
+    if (existing) {
+      this.overlay.startEdit(existing.id);
+      return;
+    }
+    const { font, bold, italic } = this.settings;
+    let size = this.settings.fontSize;
+    let x = blank.x + 3;
+    let y = blank.y + 3;
+    if (blank.kind === "line") {
+      // Sit just above the line, the way handwriting would.
+      size = Math.min(size, Math.max(6, Math.floor(blank.h * 0.95)));
+      x = blank.x + 2;
+      y = blank.y + blank.h - Math.max(1.5, size * 0.18) - baseline({ font, size, bold, italic });
+    } else if (blank.h < size * LINE_HEIGHT * 2.2) {
+      // A box for one line: centre the text in it.
+      size = Math.min(size, Math.max(6, Math.floor(blank.h * 0.75)));
+      y = blank.y + (blank.h - size * LINE_HEIGHT) / 2;
+    }
+    this.newText(view, x, y, size);
+    document.activeElement?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  /** Ticks a detected checkbox, or clears it if it is already ticked. */
+  private toggleMark(view: PageView, box: Blank, type: "check" | "cross") {
+    const cx = box.x + box.w / 2;
+    const cy = box.y + box.h / 2;
+    const existing = this.store.items.find(
+      (item) =>
+        (item.type === "check" || item.type === "cross") &&
+        item.page === view.index &&
+        Math.abs(item.x + item.w / 2 - cx) < box.w / 2 &&
+        Math.abs(item.y + item.h / 2 - cy) < box.h / 2,
+    );
+    if (existing) {
+      this.store.remove(existing.id);
+    } else {
+      const size = Math.min(box.w, box.h) * 0.9;
+      const strokeWidth = Math.min(this.settings.strokeWidth, Math.max(0.8, size / 8));
+      this.store.add({ id: newId(), page: view.index, type, x: cx - size / 2, y: cy - size / 2, w: size, h: size, stroke: this.settings.stroke, strokeWidth });
+    }
+    this.store.select(null);
+    this.store.commit();
+  }
+
+  /** Tab while typing: move on to the next blank on the page (or the previous one). */
+  private tabFrom(item: TextItem, back: boolean) {
+    const view = this.viewer.pages[item.page];
+    const blanks = (view?.blanks ?? []).filter((blank) => blank.kind !== "checkbox");
+    const current = item.cover ? null : blankAt(blanks, item.x + 1, item.y + item.size * 0.6);
+    let index: number;
+    if (current) {
+      index = blanks.indexOf(current) + (back ? -1 : 1);
+    } else {
+      const after = blanks.findIndex((blank) => blank.y + blank.h > item.y + item.size);
+      index = back ? (after < 0 ? blanks.length : after) - 1 : after;
+    }
+    this.overlay.finishEdit();
+    if (view && !item.cover && blanks[index]) this.fillBlank(view, blanks[index]);
+  }
+
+  /** Replaces a piece of the document's own text with an editable copy of it. */
+  private editRun(view: PageView, run: TextRun, x: number) {
+    const { background, ink } = this.viewer.sampleColors(view, run);
+    const guess = guessFont(this.viewer.fontName(view, run.fontName), run.fontClass, (def) => !def.files || (isDesktop && isInstalled(def)));
+    const style = { ...guess, size: Math.round(run.size * 100) / 100 };
+    const item: TextItem = {
+      id: newId(),
+      page: view.index,
+      type: "text",
+      x: run.baseX,
+      y: run.baseline - baseline(style),
+      text: run.text,
+      ...style,
+      color: ink,
+      cover: { x: run.x, y: run.y, w: run.w, h: run.h, color: background, original: run.text },
+    };
+    this.store.add(item);
+    this.overlay.startEdit(item.id, caretIndex(item, x));
   }
 
   private begin(event: PointerEvent, drag: Drag) {
@@ -384,7 +516,7 @@ export class Interaction {
 
   private onDoubleClick(event: MouseEvent) {
     const id = (event.target as Element).closest<HTMLElement>(".item.text")?.dataset.id;
-    if (id && !this.overlay.editingId) this.overlay.startEdit(id, true);
+    if (id && !this.overlay.editingId) this.overlay.startEdit(id, "all");
   }
 
   private moveGhost(event: PointerEvent) {
@@ -425,7 +557,7 @@ export class Interaction {
       if (this.tool !== "select") this.setTool("select");
       else this.store.select(null);
     } else if (key === "Enter" && selected?.type === "text") {
-      this.overlay.startEdit(selected.id, true);
+      this.overlay.startEdit(selected.id, "all");
     } else if (key.startsWith("Arrow") && selected) {
       const step = event.shiftKey ? 10 : 1;
       const dx = key === "ArrowLeft" ? -step : key === "ArrowRight" ? step : 0;

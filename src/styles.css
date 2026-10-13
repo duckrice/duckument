@@ -683,6 +683,9 @@ select {
   margin: 0;
   padding: 0;
   white-space: pre;
+  /* The saved PDF places each letter by its plain width, so the screen must too. */
+  font-kerning: none !important;
+  font-variant-ligatures: none !important;
 }
 
 .item.shape {
@@ -725,6 +728,8 @@ select {
   white-space: pre;
   resize: none;
   user-select: text;
+  font-kerning: none !important;
+  font-variant-ligatures: none !important;
 }
 
 .chrome {
@@ -784,4 +789,62 @@ select {
    placed over one isn't hidden behind it. */
 .page > .annotationLayer :is(input, textarea, select) {
   background-color: transparent;
+}
+
+/* ---- detected blanks, editable text, covers ----------------------------- */
+
+.blanks,
+.runs,
+.covers {
+  position: absolute;
+  inset: 0;
+}
+
+.blank,
+.run,
+.cover {
+  position: absolute;
+}
+
+.cover,
+.covers {
+  pointer-events: none;
+}
+
+.blank,
+.run {
+  display: none;
+  border-radius: calc(2px / var(--s));
+}
+
+.blank {
+  background: rgb(37 99 235 / 0.1);
+  outline: calc(1px / var(--s)) dashed rgb(37 99 235 / 0.5);
+}
+
+.viewer[data-tool="text"] .blank,
+.viewer:is([data-tool="check"], [data-tool="cross"]) .blank.checkbox {
+  display: block;
+}
+
+.blank.checkbox {
+  cursor: pointer;
+}
+
+.blank:hover {
+  background: rgb(37 99 235 / 0.22);
+}
+
+.viewer[data-tool="edit"] .overlay {
+  cursor: default;
+}
+
+.viewer[data-tool="edit"] .run {
+  display: block;
+  cursor: text;
+}
+
+.run:hover {
+  background: rgb(37 99 235 / 0.12);
+  outline: calc(1px / var(--s)) solid var(--accent);
 }

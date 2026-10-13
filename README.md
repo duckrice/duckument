@@ -6,8 +6,10 @@ A small, free Windows app for the everyday PDF jobs: signing a document, filling
 
 - **Sign**: draw your signature, type it, or use a photo of it. It is remembered, so the next document takes two clicks.
 - **Fill in forms**: fillable fields are detected automatically. Click a field and type; Tab moves to the next one.
-- **Add text**: press `T`, click anywhere and type. Works on forms that aren't fillable too.
-- **Check marks and crosses** for tick boxes on flat forms.
+- **Fill in forms that aren't fillable**: press `T` and the empty lines, boxes, table cells and tick boxes on the page light up. Click one to type in it, sized and placed to fit; Tab moves to the next. Click a tick box to tick it.
+- **Edit text in the document**: press `E` and click any text to change it. It keeps its size and colour, and its font when that is one that comes with Windows (Arial, Calibri, Times New Roman, Verdana and others).
+- **Add text**: press `T`, click anywhere and type.
+- **Check marks and crosses** for tick boxes.
 - **Shapes**: rectangles, ellipses, lines, arrows, freehand drawing, and white-out to cover something up.
 - **Pictures**: insert an image, or paste one from the clipboard.
 - Undo/redo, copy/paste, and smooth zooming (Ctrl + mouse wheel).
@@ -24,7 +26,9 @@ Windows may show "Windows protected your PC" because the installer isn't code-si
 
 - Saving asks where to put the file the first time and suggests `name-edited.pdf`, so the original isn't replaced by accident.
 - What you add becomes part of the page when you save. It stays editable until you close the document.
-- Editing the text that is already in a PDF isn't supported yet. Use white-out and add new text on top.
+- Editing text works a line at a time: the original is painted over and your version is put on top. Other text doesn't move to make room, a font that isn't installed is swapped for a similar one, and text that is sideways or part of a scanned picture can't be edited.
+- Because edited text is painted over, the original words are still inside the saved file, hidden. Don't rely on it to remove confidential information.
+- Blank detection looks for a line or a frame with empty space on it. Dotted lines and shaded areas without an outline aren't recognised; you can still click there and type.
 - Password-protected PDFs can be opened and filled in, but added text, shapes and signatures can't be saved into them yet.
 
 ## Keyboard shortcuts
@@ -32,7 +36,8 @@ Windows may show "Windows protected your PC" because the installer isn't code-si
 | Key | Action |
 | --- | --- |
 | `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` | Open / Save / Save as |
-| `V` `T` `S` | Select, Text, Sign |
+| `V` `T` `E` `S` | Select, Text (and fill in blanks), Edit text, Sign |
+| `Tab` / `Shift+Tab` while typing | Next / previous blank |
 | `C` `X` | Check mark, Cross |
 | `R` `O` `L` `A` `P` `W` | Rectangle, Ellipse, Line, Arrow, Draw, White-out |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |

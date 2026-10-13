@@ -3,6 +3,7 @@ import type { Item } from "./model";
 export type Tool =
   | "select"
   | "text"
+  | "edit"
   | "check"
   | "cross"
   | "rect"
@@ -78,6 +79,11 @@ export class Store {
     this.redoStack = [];
     this.committed = this.items;
     this.emit();
+  }
+
+  /** Whether an item was already there at the last commit. */
+  isCommitted(id: string): boolean {
+    return this.committed.some((item) => item.id === id);
   }
 
   /** Drops the changes since the last commit. */

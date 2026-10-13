@@ -1,8 +1,6 @@
 // Everything the user adds to a document. Coordinates are in PDF points in
 // the page as displayed (rotation applied), origin top-left, y pointing down.
 
-export type FontFamily = "sans" | "serif" | "mono";
-
 interface ItemBase {
   id: string;
   /** Zero-based page index. */
@@ -21,11 +19,18 @@ export interface TextItem extends ItemBase {
   x: number;
   y: number;
   text: string;
-  font: FontFamily;
+  /** A font id from fonts.ts. */
+  font: string;
   size: number;
   bold: boolean;
   italic: boolean;
   color: string;
+  /**
+   * Set when this text replaces text that was already in the document: the
+   * area of the original that is painted over, the colour to paint it, and
+   * what the original said.
+   */
+  cover?: Box & { color: string; original: string };
 }
 
 export interface ShapeItem extends ItemBase, Box {

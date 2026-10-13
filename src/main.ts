@@ -16,6 +16,7 @@ import {
   pickPdf,
   pickSavePath,
   readPath,
+  readSystemFont,
   setTitle,
   startupFile,
   writePath,
@@ -41,6 +42,8 @@ interface OpenDocument {
 
 let current: OpenDocument | null = null;
 let formsDirty = false;
+/** Whether the tip about detected blanks has been shown for this document. */
+let blanksAnnounced = false;
 
 const app = document.getElementById("app")!;
 const viewerEl = h("main", { class: "viewer" });
@@ -53,6 +56,12 @@ const viewer = new Viewer(viewerEl, {
   onFormEdit: () => {
     formsDirty = true;
     updateTitle();
+  },
+  onBlanks: (view) => {
+    const count = view.blanks?.length ?? 0;
+    if (!count || blanksAnnounced) return;
+    blanksAnnounced = true;
+    toast(`Found ${count} ${count === 1 ? "blank" : "blanks"} to fill in on page ${view.index + 1}. Click one to type in it; Tab moves to the next.`);
   },
   askPassword,
 });
@@ -195,6 +204,7 @@ async function openDocument(file: OpenedFile) {
   interaction.setTool("select");
   current = { name: file.name, bytes: file.bytes, path: file.path, savePath: null };
   formsDirty = false;
+  blanksAnnounced = false;
   updateTitle();
   toolbar.update();
   // Field detection finishes shortly after the first page is shown.
@@ -232,6 +242,7 @@ async function buildPdf(doc: OpenDocument): Promise<Uint8Array> {
     pageTransform: (index) => viewer.pageTransform(index),
     baseline,
     rasterizeText,
+    loadFont: isDesktop ? readSystemFont : undefined,
   });
 }
 
@@ -319,9 +330,15 @@ void startupFile().then((path) => {
   if (path) void openPath(path);
 });
 
-if (import.meta.env.DEV) {
-  // Development aids: `__fpe` in the console, and
-  // http://localhost:1420/?src=/samples/form.pdf to open a file served by Vite.
+// Testing aid: `__fpe` in the console. In the installed app it is only there
+// after `localStorage["freepdfeditor.debug"] = "1"` and a reload.
+let debug = import.meta.env.DEV;
+try {
+  debug ||= localStorage.getItem("freepdfeditor.debug") === "1";
+} catch {
+  // No storage, no debug handle.
+}
+if (debug) {
   Object.assign(window, {
     __fpe: {
       store,
@@ -336,6 +353,10 @@ if (import.meta.env.DEV) {
       },
     },
   });
+}
+
+if (import.meta.env.DEV) {
+  // http://localhost:1420/?src=/samples/form.pdf opens a file served by Vite.
   const src = new URLSearchParams(location.search).get("src");
   if (src) {
     void fetch(src)

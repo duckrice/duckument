@@ -14,6 +14,8 @@ type ItemElement = HTMLElement | SVGSVGElement;
 interface Rendered {
   el: ItemElement;
   item: Item | null;
+  /** The patch hiding the original text, for text that replaces some. */
+  cover: HTMLElement | null;
 }
 
 const BOX_HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
@@ -23,6 +25,8 @@ const HIT_SLOP = 8;
 export class Overlay {
   /** The text item being typed into, if any. */
   editingId: string | null = null;
+  /** Called when Tab is pressed while typing; `back` is true with Shift. */
+  onTab: ((item: TextItem, back: boolean) => void) | null = null;
 
   private rendered = new Map<string, Rendered>();
   private selection = h("div", { class: "selection" });
@@ -43,6 +47,12 @@ export class Overlay {
       if (event.key === "Escape") {
         event.stopPropagation();
         this.finishEdit();
+      } else if (event.key === "Tab") {
+        const item = this.editingItem();
+        if (item && this.onTab) {
+          event.preventDefault();
+          this.onTab(item, event.shiftKey);
+        }
       }
     });
     this.editor.addEventListener("blur", () => this.finishEdit());
@@ -61,6 +71,7 @@ export class Overlay {
     for (const [id, record] of this.rendered) {
       if (!ids.has(id)) {
         record.el.remove();
+        record.cover?.remove();
         this.rendered.delete(id);
       }
     }
@@ -73,11 +84,12 @@ export class Overlay {
       if (!host) continue;
       let record = this.rendered.get(item.id);
       if (!record) {
-        record = { el: this.create(item), item: null };
+        record = { el: this.create(item), item: null, cover: null };
         this.rendered.set(item.id, record);
       }
       if (record.item !== item) {
         this.update(record.el, item);
+        this.updateCover(record, item);
         record.item = item;
       }
       const cursor = cursors.has(host) ? cursors.get(host)! : host.firstElementChild;
@@ -144,6 +156,19 @@ export class Overlay {
     }
   }
 
+  private updateCover(record: Rendered, item: Item) {
+    const cover = item.type === "text" ? item.cover : undefined;
+    const host = this.viewer.pages[item.page]?.covers;
+    if (!cover || !host) {
+      record.cover?.remove();
+      record.cover = null;
+      return;
+    }
+    record.cover ??= h("div", { class: "cover" });
+    if (record.cover.parentNode !== host) host.append(record.cover);
+    record.cover.style.cssText = `left:${cover.x}px;top:${cover.y}px;width:${cover.w}px;height:${cover.h}px;background:${cover.color}`;
+  }
+
   /** The item's bounding box in page points. */
   box(item: Item): Box {
     if (isLine(item)) {
@@ -199,7 +224,8 @@ export class Overlay {
     return item?.type === "text" ? item : undefined;
   }
 
-  startEdit(id: string, selectAll = false) {
+  /** @param caret where to put the cursor: a character index, "all" to select everything, or the end. */
+  startEdit(id: string, caret: number | "all" | "end" = "end") {
     if (this.editingId === id) return;
     this.finishEdit();
     const item = this.store.get(id);
@@ -213,8 +239,11 @@ export class Overlay {
     this.editor.value = item.text;
     el.replaceChildren(this.sizer, this.editor);
     this.editor.focus({ preventScroll: true });
-    if (selectAll) this.editor.select();
-    else this.editor.setSelectionRange(item.text.length, item.text.length);
+    if (caret === "all") this.editor.select();
+    else {
+      const index = caret === "end" ? item.text.length : Math.min(caret, item.text.length);
+      this.editor.setSelectionRange(index, index);
+    }
     this.syncSelection();
   }
 
@@ -233,8 +262,13 @@ export class Overlay {
     }
     if (item) {
       const text = item.text.replace(/\s+$/, "");
-      if (!text) this.store.remove(id);
+      // Text replacing part of the document stays even when emptied: that is
+      // how the original is deleted. Opening it without changing it is a no-op.
+      const untouched = item.cover && !this.store.isCommitted(id) && text === item.cover.original;
+      if (untouched || (!text && !item.cover)) this.store.remove(id);
       else if (text !== item.text) this.store.replace({ ...item, text });
+      // Emptied text has nothing to show a selection around.
+      if (!text) this.store.select(null);
     }
     this.store.commit();
     this.sync();

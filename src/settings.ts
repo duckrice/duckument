@@ -1,8 +1,7 @@
-import type { FontFamily } from "./model";
-
 /** What the next added item looks like; remembered between sessions. */
 export interface Settings {
-  font: FontFamily;
+  /** A font id from fonts.ts. */
+  font: string;
   fontSize: number;
   bold: boolean;
   italic: boolean;

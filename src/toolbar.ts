@@ -2,9 +2,11 @@
 // about to be added), and the zoom controls.
 
 import { h } from "./dom";
+import { FONTS, isInstalled } from "./fonts";
 import { icon, type IconName } from "./icons";
 import type { Interaction } from "./interact";
-import { isLine, type FontFamily, type Item } from "./model";
+import { isLine, type Item } from "./model";
+import { isDesktop } from "./platform";
 import { saveSettings, type Settings } from "./settings";
 import { createSignature, loadSignatures, placedSize, storeSignatures, type Signature } from "./signature";
 import type { Store, Tool } from "./store";
@@ -18,9 +20,10 @@ export interface Actions {
   toast(message: string): void;
 }
 
-const TOOLS: { tool: Tool; icon: IconName; label: string; key: string; text?: boolean }[] = [
+const TOOLS: { tool: Tool; icon: IconName; label: string; key: string; text?: string }[] = [
   { tool: "select", icon: "select", label: "Select and move", key: "V" },
-  { tool: "text", icon: "text", label: "Add text", key: "T", text: true },
+  { tool: "text", icon: "text", label: "Add text, or fill in a blank", key: "T", text: "Text" },
+  { tool: "edit", icon: "edit", label: "Edit text that is in the document", key: "E", text: "Edit text" },
   { tool: "check", icon: "check", label: "Check mark", key: "C" },
   { tool: "cross", icon: "cross", label: "Cross", key: "X" },
   { tool: "rect", icon: "rect", label: "Rectangle", key: "R" },
@@ -33,11 +36,11 @@ const TOOLS: { tool: Tool; icon: IconName; label: string; key: string; text?: bo
 
 const COLORS = ["#000000", "#1a3fb0", "#d92626", "#178a3e", "#f08c00", "#ffffff"];
 const WIDTHS = [0.5, 1, 1.5, 2, 3, 4, 6, 8];
-const FONT_NAMES: Record<FontFamily, string> = { sans: "Sans (Helvetica)", serif: "Serif (Times)", mono: "Mono (Courier)" };
 
 const HINTS: Partial<Record<Tool, string>> = {
   select: "Click something you added to move or resize it. Fillable fields can be typed into directly.",
   place: "Click on the page where it should go. Press Esc to cancel.",
+  edit: "Click any text in the document to change it. Clear it to delete it. The new text can be moved like anything else you add.",
   whiteout: "Drag over what you want to cover up.",
 };
 
@@ -89,7 +92,7 @@ export class Toolbar {
     this.redoButton = button("redo", "Redo (Ctrl+Y)", () => store.redo());
 
     const tools = TOOLS.map((def) => {
-      const el = button(def.icon, `${def.label} (${def.key})`, () => interaction.setTool(def.tool), def.text ? "Text" : undefined);
+      const el = button(def.icon, `${def.label} (${def.key})`, () => interaction.setTool(def.tool), def.text);
       this.toolButtons.set(def.tool, el);
       return el;
     });
@@ -108,8 +111,8 @@ export class Toolbar {
     this.zoomLabel = h("button", { type: "button", class: "tb zoom", title: "Fit to window width (Ctrl+0)", onclick: () => viewer.zoomToFitWidth() });
     this.pageLabel = h("span", { class: "page-label" });
 
-    // select, text | sign | check, cross | shapes... | picture
-    const [select, text, check, cross, ...shapes] = tools;
+    // select, text, edit text | sign | check, cross | shapes... | picture
+    const [select, text, editText, check, cross, ...shapes] = tools;
     this.docButtons = [this.saveButton, ...tools, this.signButton, imageButton, zoomOut, zoomIn, this.zoomLabel];
 
     const main = h(
@@ -117,7 +120,7 @@ export class Toolbar {
       { class: "toolbar" },
       h("div", { class: "group" }, openButton, this.saveButton),
       h("div", { class: "group" }, this.undoButton, this.redoButton),
-      h("div", { class: "group" }, select, text, h("div", { class: "menu-anchor" }, this.signButton, this.signMenu), check, cross),
+      h("div", { class: "group" }, select, text, editText, h("div", { class: "menu-anchor" }, this.signButton, this.signMenu), check, cross),
       h("div", { class: "group" }, ...shapes, imageButton),
       h("div", { class: "spacer" }),
       h("div", { class: "group" }, this.pageLabel, zoomOut, this.zoomLabel, zoomIn),
@@ -297,8 +300,10 @@ export class Toolbar {
       const selected = this.store.selected;
       return selected?.type === "text" ? selected : null;
     };
-    const font = h("select", { class: "select", title: "Font" }, ...Object.entries(FONT_NAMES).map(([value, name]) => h("option", { value }, name)));
-    font.addEventListener("change", () => this.apply({ font: font.value }, { font: font.value as FontFamily }));
+    // Windows fonts are embedded from the Fonts folder when saving, which only the desktop app can do.
+    const fonts = FONTS.filter((def) => !def.files || (isDesktop && isInstalled(def)));
+    const font = h("select", { class: "select", title: "Font" }, ...fonts.map((def) => h("option", { value: def.id }, def.label)));
+    font.addEventListener("change", () => this.apply({ font: font.value }, { font: font.value }));
 
     const size = h("input", { class: "number", type: "number", min: 4, max: 300, step: 1, title: "Text size in points" });
     const setSize = (value: number) => {
