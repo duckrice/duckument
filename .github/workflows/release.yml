@@ -1,0 +1,45 @@
+name: Release
+
+# Pushing a tag like v0.1.0 builds the Windows installer and publishes it as a
+# GitHub Release. The tag must match the version in src-tauri/tauri.conf.json.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - run: npm test
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Free PDF Editor ${{ github.ref_name }}
+          releaseBody: |
+            Download the `.exe` file below and run it to install.
+
+            Windows may show "Windows protected your PC" because the installer isn't code-signed.
+            Click **More info**, then **Run anyway**.
+          releaseDraft: false
+          prerelease: false

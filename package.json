@@ -1,0 +1,28 @@
+{
+  "name": "freepdfeditor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "assets": "node scripts/copy-pdfjs-assets.mjs",
+    "dev": "npm run assets && vite",
+    "build": "npm run assets && tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "tauri": "tauri",
+    "samples": "node scripts/make-samples.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.4.299"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/node": "^24",
+    "typescript": "~6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^4"
+  }
+}

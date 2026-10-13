@@ -1,0 +1,787 @@
+:root {
+  color-scheme: light dark;
+  --panel: #ffffff;
+  --panel-2: #f4f5f7;
+  --border: #d9dce1;
+  --text: #1d2026;
+  --muted: #667085;
+  --hover: #eceef2;
+  --accent: #2563eb;
+  --accent-soft: #dbe7ff;
+  --accent-text: #1d4ed8;
+  --viewer: #e6e8ec;
+  --shadow: 0 8px 30px rgb(0 0 0 / 0.18);
+  font: 13px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --panel: #26282c;
+    --panel-2: #1f2124;
+    --border: #3b3e44;
+    --text: #e8eaed;
+    --muted: #9aa1ac;
+    --hover: #34373c;
+    --accent: #5b8def;
+    --accent-soft: #2c3f66;
+    --accent-text: #a9c4ff;
+    --viewer: #17181a;
+    --shadow: 0 8px 30px rgb(0 0 0 / 0.5);
+  }
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  color: var(--text);
+  background: var(--viewer);
+  overflow: hidden;
+  user-select: none;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+.icon {
+  flex: none;
+  display: block;
+}
+
+/* ---- toolbar ------------------------------------------------------------ */
+
+.chrome-top {
+  flex: none;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  z-index: 20;
+}
+
+.toolbar,
+.props {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+}
+
+.props {
+  gap: 16px;
+  /* Fixed, so the page doesn't shift when the options change. */
+  height: 28px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.group + .group {
+  margin-left: 6px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.spacer + .group {
+  border-left: 0;
+}
+
+.tb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tb.labelled {
+  padding: 0 10px 0 8px;
+}
+
+.tb.small {
+  height: 26px;
+  min-width: 26px;
+  padding: 0 5px;
+}
+
+.tb:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.tb.active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.tb:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.tb:focus-visible,
+.btn:focus-visible,
+.swatch:focus-visible,
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.tb.toggle {
+  font: 600 14px/1 Georgia, "Times New Roman", serif;
+}
+
+.tb.toggle.italic {
+  font-style: italic;
+}
+
+.tb.zoom {
+  min-width: 52px;
+  font-variant-numeric: tabular-nums;
+}
+
+.caret {
+  margin-left: -3px;
+  opacity: 0.7;
+}
+
+.page-label {
+  margin-right: 8px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.hint {
+  color: var(--muted);
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.field-label {
+  color: var(--muted);
+}
+
+.select,
+.number,
+.text-input {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.number {
+  width: 52px;
+}
+
+.text-input {
+  width: 100%;
+  height: 32px;
+  box-sizing: border-box;
+}
+
+.swatches {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid rgb(128 128 128 / 0.55);
+  border-radius: 50%;
+  background: var(--c, #fff);
+  cursor: pointer;
+  appearance: none;
+}
+
+.swatch.active {
+  box-shadow:
+    0 0 0 2px var(--panel-2),
+    0 0 0 4px var(--accent);
+}
+
+.swatch.none {
+  background: linear-gradient(to top right, #fff 44%, #d92626 44%, #d92626 56%, #fff 56%);
+}
+
+.swatch.custom {
+  background: conic-gradient(#f43, #fc3, #4c5, #3cf, #54f, #f4c, #f43);
+  overflow: hidden;
+}
+
+.swatch.custom::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.swatch.custom::-webkit-color-swatch {
+  border: 0;
+  opacity: 0;
+}
+
+.swatch.custom.active::-webkit-color-swatch {
+  opacity: 1;
+}
+
+/* ---- menus, buttons, dialogs -------------------------------------------- */
+
+.menu-anchor {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  z-index: 30;
+}
+
+.sign-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.sign-pick {
+  width: 210px;
+  height: 58px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.sign-pick:hover {
+  border-color: var(--accent);
+}
+
+.sign-pick img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: var(--hover);
+}
+
+.btn {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--hover);
+}
+
+.btn.subtle {
+  height: 28px;
+  padding: 0 10px;
+}
+
+.btn.primary {
+  border-color: transparent;
+  background: #2563eb;
+  color: #fff;
+}
+
+.btn.primary:hover {
+  background: #1d4ed8;
+}
+
+.btn.large {
+  height: 40px;
+  padding: 0 22px;
+  font-size: 14px;
+}
+
+.dialog {
+  width: min(420px, 92vw);
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.dialog::backdrop {
+  background: rgb(0 0 0 / 0.4);
+}
+
+.dialog h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.dialog p {
+  margin: 0 0 14px;
+}
+
+.dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.dialog-footer .check {
+  margin-right: auto;
+}
+
+.dialog-error {
+  color: #d92626;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+/* ---- signature dialog --------------------------------------------------- */
+
+.sig-dialog {
+  width: min(600px, 94vw);
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  padding: 7px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+}
+
+.tab.active {
+  border-bottom-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.sig-pad,
+.sig-image-box {
+  display: block;
+  width: 100%;
+  height: 220px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.sig-pad {
+  /* A faint line to sign on; it is not part of the signature. */
+  background: linear-gradient(#c9ced6, #c9ced6) no-repeat 5% 76% / 90% 1px #fff;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.sig-image-box {
+  display: grid;
+  place-items: center;
+  padding: 10px;
+  background: repeating-conic-gradient(#fff 0 25%, #eceef2 0 50%) 0 0 / 16px 16px;
+  color: #667085;
+  text-align: center;
+}
+
+.sig-preview {
+  max-width: 100%;
+  max-height: 198px;
+}
+
+.sig-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.sig-hint {
+  flex: 1;
+  color: var(--muted);
+}
+
+.sig-name {
+  width: 100%;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  font-size: 15px;
+}
+
+.sig-fonts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.sig-font {
+  height: 72px;
+  padding: 0 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 26px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.sig-font.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* ---- welcome and toasts ------------------------------------------------- */
+
+.welcome {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.welcome-icon {
+  color: var(--accent);
+}
+
+.welcome h1 {
+  margin: 8px 0 0;
+  font-size: 22px;
+}
+
+.welcome p {
+  margin: 0 0 14px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.welcome .muted {
+  margin-top: 10px;
+}
+
+.toasts {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transform: translateX(-50%);
+  z-index: 60;
+  pointer-events: none;
+}
+
+.toast {
+  max-width: 80vw;
+  padding: 9px 16px;
+  border-radius: 9px;
+  background: #23262b;
+  color: #fff;
+  box-shadow: var(--shadow);
+}
+
+.toast.error {
+  background: #b42318;
+}
+
+/* ---- pages -------------------------------------------------------------- */
+
+.viewer {
+  position: relative;
+  flex: 1;
+  overflow: auto;
+  background: var(--viewer);
+}
+
+.pages {
+  --s: 1.3333;
+  --scale-factor: 1.3333;
+  --user-unit: 1;
+  --total-scale-factor: 1.3333;
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  padding: 18px 24px 40px;
+}
+
+.pages:empty {
+  display: none;
+}
+
+.page {
+  position: relative;
+  /* Keeps the layer order below local to the page. */
+  isolation: isolate;
+  flex: none;
+  width: round(down, calc(var(--w) * var(--s) * 1px), 1px);
+  height: round(down, calc(var(--h) * var(--s) * 1px), 1px);
+  background: #fff;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.06),
+    0 2px 8px rgb(0 0 0 / 0.16);
+}
+
+.canvas-wrap canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.page > .annotationLayer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  user-select: text;
+}
+
+[data-main-rotation="90"] {
+  transform: rotate(90deg) translateY(-100%);
+}
+
+[data-main-rotation="180"] {
+  transform: rotate(180deg) translate(-100%, -100%);
+}
+
+[data-main-rotation="270"] {
+  transform: rotate(270deg) translateX(-100%);
+}
+
+/* The overlay is laid out in PDF points and scaled as a whole to the zoom level. */
+.overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(var(--w) * 1px);
+  height: calc(var(--h) * 1px);
+  z-index: 2;
+  transform: scale(var(--s));
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+/* While a tool is active the whole page takes the pointer, not what's under it. */
+.viewer:not([data-tool="select"]) .overlay {
+  pointer-events: auto;
+}
+
+.viewer[data-tool="text"] .overlay {
+  cursor: text;
+}
+
+.viewer:is([data-tool="rect"], [data-tool="ellipse"], [data-tool="line"], [data-tool="arrow"], [data-tool="pen"], [data-tool="whiteout"], [data-tool="check"], [data-tool="cross"]) .overlay {
+  cursor: crosshair;
+}
+
+.viewer[data-tool="place"] .overlay {
+  cursor: copy;
+}
+
+.item {
+  position: absolute;
+}
+
+.item.text,
+.item.image {
+  pointer-events: auto;
+}
+
+.item.text {
+  margin: 0;
+  padding: 0;
+  white-space: pre;
+}
+
+.item.shape {
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.viewer[data-tool="select"] .item.text,
+.viewer[data-tool="select"] .item.image,
+.viewer[data-tool="select"] .item.shape path {
+  cursor: move;
+}
+
+.item.text.editing {
+  min-width: 2px;
+  cursor: text;
+}
+
+.text-sizer {
+  visibility: hidden;
+}
+
+.text-editor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* Room to keep typing before the item has grown to fit. */
+  width: calc(100% + 3em);
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  white-space: pre;
+  resize: none;
+  user-select: text;
+}
+
+.chrome {
+  position: absolute;
+  inset: 0;
+}
+
+.selection {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.selection.box {
+  outline: calc(1px / var(--s)) solid var(--accent);
+  outline-offset: calc(2px / var(--s));
+}
+
+.handle {
+  position: absolute;
+  box-sizing: border-box;
+  width: calc(10px / var(--s));
+  height: calc(10px / var(--s));
+  border: calc(1.5px / var(--s)) solid var(--accent);
+  border-radius: 50%;
+  background: #fff;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.selection.box .handle {
+  --o: calc(2px / var(--s));
+}
+
+.handle.nw { left: calc(0px - var(--o)); top: calc(0px - var(--o)); cursor: nwse-resize; }
+.handle.n { left: 50%; top: calc(0px - var(--o)); cursor: ns-resize; }
+.handle.ne { left: calc(100% + var(--o)); top: calc(0px - var(--o)); cursor: nesw-resize; }
+.handle.e { left: calc(100% + var(--o)); top: 50%; cursor: ew-resize; }
+.handle.se { left: calc(100% + var(--o)); top: calc(100% + var(--o)); cursor: nwse-resize; }
+.handle.s { left: 50%; top: calc(100% + var(--o)); cursor: ns-resize; }
+.handle.sw { left: calc(0px - var(--o)); top: calc(100% + var(--o)); cursor: nesw-resize; }
+.handle.w { left: calc(0px - var(--o)); top: 50%; cursor: ew-resize; }
+
+.selection.corners-only .handle:is(.n, .e, .s, .w),
+.selection.editing .handle {
+  display: none;
+}
+
+.place-ghost {
+  position: fixed;
+  z-index: 50;
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+/* Fields stay see-through (apart from their tint) so a signature or text
+   placed over one isn't hidden behind it. */
+.page > .annotationLayer :is(input, textarea, select) {
+  background-color: transparent;
+}
