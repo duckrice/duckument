@@ -17,6 +17,7 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { detectBlanks, type Blank } from "./blanks";
 import { h } from "./dom";
 import type { Matrix } from "./export";
+import type { FontEvidence } from "./fontmatch";
 import type { Box } from "./model";
 import { buildRuns, type TextRun } from "./textruns";
 
@@ -584,14 +585,33 @@ export class Viewer {
     );
   }
 
-  /** The real name of a font used on a page ("ABCDEF+Calibri-Bold"), if pdf.js has loaded it. */
-  fontName(view: PageView, internalName: string): string {
+  /** What pdf.js knows about a font used on a page, as clues to which font it really is. */
+  fontEvidence(view: PageView, internalName: string): FontEvidence {
     try {
       const objs = view.pdfPage?.commonObjs;
-      return (objs?.has(internalName) && (objs.get(internalName) as { name?: string }).name) || "";
+      if (objs?.has(internalName)) {
+        const font = objs.get(internalName) as {
+          name?: string;
+          bold?: boolean;
+          italic?: boolean;
+          black?: boolean;
+          isSerifFont?: boolean;
+          isMonospace?: boolean;
+          data?: Uint8Array | null;
+        };
+        return {
+          name: font.name ?? "",
+          bold: !!font.bold || !!font.black,
+          italic: !!font.italic,
+          serif: !!font.isSerifFont,
+          mono: !!font.isMonospace,
+          data: font.data,
+        };
+      }
     } catch {
-      return "";
+      // A font pdf.js could not load tells us nothing.
     }
+    return { name: "" };
   }
 
   /**

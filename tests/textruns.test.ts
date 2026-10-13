@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
-import { guessFont } from "../src/fonts";
 import { buildRuns, runAt } from "../src/textruns";
 
 async function runsOf(build: (doc: PDFDocument) => Promise<void>) {
@@ -35,7 +34,8 @@ describe("buildRuns", () => {
     // The box to paint over reaches from above the capitals to below the descenders.
     expect(first.y).toBeLessThan(50 - 12 * 0.7);
     expect(first.y + first.h).toBeGreaterThan(50 + 12 * 0.2);
-    expect(first.w).toBeGreaterThan(90);
+    expect(first.width).toBeGreaterThan(90);
+    expect(first.w).toBeCloseTo(first.width + 2, 6);
     expect(runAt(runs, 60, 46)).toBe(first);
     expect(runAt(runs, 60, 66)).toBe(second);
     expect(runAt(runs, 300, 46)).toBeNull();
@@ -68,25 +68,5 @@ describe("buildRuns", () => {
     const [x, y] = viewport.convertToViewportPoint(100, 50);
     expect(runs[0].baseX).toBeCloseTo(x, 3);
     expect(runs[0].baseline).toBeCloseTo(y, 3);
-  });
-});
-
-describe("guessFont", () => {
-  const all = () => true;
-  const standardOnly = (def: { files?: unknown }) => !def.files;
-
-  it("recognises font names as they appear inside PDFs", () => {
-    expect(guessFont("ABCDEF+Calibri-BoldItalic", "sans", all)).toEqual({ font: "calibri", bold: true, italic: true });
-    expect(guessFont("TimesNewRomanPS-BoldMT", "serif", all)).toEqual({ font: "timesnewroman", bold: true, italic: false });
-    expect(guessFont("ArialMT", "sans", all)).toEqual({ font: "arial", bold: false, italic: false });
-    expect(guessFont("Helvetica-Oblique", "sans", all)).toEqual({ font: "sans", bold: false, italic: true });
-    expect(guessFont("Times-Roman", "serif", all)).toEqual({ font: "serif", bold: false, italic: false });
-    expect(guessFont("CourierNewPSMT", "mono", all)).toEqual({ font: "couriernew", bold: false, italic: false });
-  });
-
-  it("falls back to the general shape when the font is unknown or unavailable", () => {
-    expect(guessFont("XYZABC+Frutiger-Bold", "sans", all)).toEqual({ font: "sans", bold: true, italic: false });
-    expect(guessFont("Calibri", "sans", standardOnly)).toEqual({ font: "sans", bold: false, italic: false });
-    expect(guessFont("", "mono", all)).toEqual({ font: "mono", bold: false, italic: false });
   });
 });

@@ -2,7 +2,8 @@
 
 import { blankAt, type Blank } from "./blanks";
 import { h, isTyping } from "./dom";
-import { guessFont, isInstalled } from "./fonts";
+import { identifyFont } from "./fontmatch";
+import { FONTS, isInstalled, type FontDef } from "./fonts";
 import {
   LINE_HEIGHT,
   isLine,
@@ -96,6 +97,19 @@ function penItem(base: Omit<PenItem, "x" | "y" | "w" | "h" | "points">, absolute
   const height = Math.max(maxY - minY, 0.01);
   const points = absolute.map((v, i) => (i % 2 === 0 ? (v - minX) / w : (v - minY) / height));
   return { ...base, x: minX, y: minY, w, h: height, points };
+}
+
+let probe: HTMLElement | null = null;
+
+/** The width, at a font size of 1, of text laid out the way items are on the page. */
+function measureText(def: FontDef, bold: boolean, italic: boolean, text: string): number {
+  if (!probe) {
+    probe = h("div", { class: "item text", style: "left:0;top:0;visibility:hidden" });
+    document.body.append(probe);
+  }
+  probe.style.font = cssFont({ font: def.id, size: 100, bold, italic });
+  probe.textContent = text;
+  return probe.getBoundingClientRect().width / 100;
 }
 
 let measure: CanvasRenderingContext2D | null = null;
@@ -388,7 +402,16 @@ export class Interaction {
   /** Replaces a piece of the document's own text with an editable copy of it. */
   private editRun(view: PageView, run: TextRun, x: number) {
     const { background, ink } = this.viewer.sampleColors(view, run);
-    const guess = guessFont(this.viewer.fontName(view, run.fontName), run.fontClass, (def) => !def.files || (isDesktop && isInstalled(def)));
+    // Windows fonts can only be embedded by the desktop app.
+    const usable = FONTS.filter((def) => !def.files || (isDesktop && isInstalled(def)));
+    const evidence = this.viewer.fontEvidence(view, run.fontName);
+    if (run.fontClass === "mono") evidence.mono = true;
+    // Other text in the same font, longest first, makes the match surer.
+    const others = (view.runs ?? [])
+      .filter((other) => other !== run && other.fontName === run.fontName)
+      .sort((a, b) => b.text.length - a.text.length);
+    const samples = [run, ...others].map((sample) => ({ text: sample.text, width: sample.width / sample.size }));
+    const guess = identifyFont(evidence, samples, usable, measureText);
     const style = { ...guess, size: Math.round(run.size * 100) / 100 };
     const item: TextItem = {
       id: newId(),

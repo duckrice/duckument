@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import fontkit from "@pdf-lib/fontkit";
-import { PDFDocument, StandardFonts, degrees, rgb } from "pdf-lib";
+import { PDFDocument, PDFHexString, StandardFonts, beginText, degrees, endText, rgb, setFontAndSize, setTextMatrix, showText } from "pdf-lib";
 
 const out = join(dirname(fileURLToPath(import.meta.url)), "..", "samples");
 mkdirSync(out, { recursive: true });
@@ -116,7 +116,41 @@ async function letter() {
   writeFileSync(join(out, "letter.pdf"), await doc.save());
 }
 
+// Text in Windows fonts stored the awkward ways real PDFs store them: under
+// made-up names, and by name only without the font inside the file.
+async function fonts() {
+  const dir = "C:/Windows/Fonts";
+  if (!existsSync(`${dir}/timesi.ttf`)) return;
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  const page = doc.addPage([595, 420]);
+  let y = 380;
+  const embedded = async (file, customName, lines) => {
+    const font = await doc.embedFont(readFileSync(`${dir}/${file}`), { subset: true, customName });
+    for (const line of lines) {
+      page.drawText(line, { x: 40, y, size: 13, font });
+      y -= 22;
+    }
+    y -= 12;
+  };
+  await embedded("timesi.ttf", "TT5o00", ["The delta to wye transformation", "simplifies a resistor network", "into one that is easy to solve."]);
+  await embedded("calibrib.ttf", "C2_1", ["Workshop 4: worked solutions", "Hand in before Friday at noon"]);
+  await embedded("ariali.ttf", "F7", ["Hint: start from the outer loop", "and work towards the source."]);
+
+  const hex = (text) => PDFHexString.of([...text].map((ch) => ch.charCodeAt(0).toString(16).padStart(2, "0")).join(""));
+  const byName = (baseFont, text) => {
+    const ref = doc.context.register(doc.context.obj({ Type: "Font", Subtype: "TrueType", BaseFont: baseFont, Encoding: "WinAnsiEncoding" }));
+    const key = page.node.newFontDictionary("N", ref);
+    page.pushOperators(beginText(), setFontAndSize(key, 13), setTextMatrix(1, 0, 0, 1, 40, y), showText(hex(text)), endText());
+    y -= 22;
+  };
+  byName("TimesNewRomanPS-BoldItalicMT", "Named only, bold italic Times New Roman");
+  byName("TimesNewRoman,Italic", "Named only, italic with a comma");
+  writeFileSync(join(out, "fonts.pdf"), await doc.save());
+}
+
 await form();
 await flat();
 await letter();
+await fonts();
 console.log(`Wrote samples to ${out}`);

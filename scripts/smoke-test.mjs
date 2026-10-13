@@ -5,7 +5,7 @@
 //
 //   npm run samples && npm run tauri build -- --no-bundle && npm run smoke
 import { spawn } from "node:child_process";
-import { readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const exe = join(root, "src-tauri", "target", "release", "freepdfeditor.exe");
 const sample = (name) => join(root, "samples", name);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Its own browser profile: the test then works while the app is open for real
+// use, and doesn't touch the signatures and settings saved there.
+const profile = mkdtempSync(join(tmpdir(), "freepdfeditor-smoke-"));
 
 let failures = 0;
 function check(name, ok, detail = "") {
@@ -25,7 +28,7 @@ function check(name, ok, detail = "") {
 /** Starts the app with `file` open and hands `run` helpers for driving it. */
 async function session(file, port, run) {
   const child = spawn(exe, [file], {
-    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}` },
+    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`, WEBVIEW2_USER_DATA_FOLDER: profile },
     stdio: "ignore",
   });
   let target;
@@ -117,6 +120,14 @@ async function session(file, port, run) {
         await sleep(200);
       }
       return false;
+    },
+    /** Makes `window.__fpe` (the store, the viewer, and the bytes Save would write) available. */
+    async debugHandle() {
+      await app.evaluate(`localStorage.setItem("freepdfeditor.debug", "1")`);
+      await app.evaluate("location.reload()");
+      await sleep(1500);
+      await app.waitFor(`!!document.querySelector(".page canvas") && !!window.__fpe`);
+      await sleep(800);
     },
     invoke: (command, args) => app.evaluate(`window.__TAURI_INTERNALS__.invoke(${JSON.stringify(command)}, ${JSON.stringify(args ?? {})})`),
   };
@@ -210,12 +221,7 @@ const saved = join(tmpdir(), "freepdfeditor-smoke-saved.pdf");
 rmSync(saved, { force: true });
 
 await session(sample("letter.pdf"), 9334, async (app) => {
-  // The build-and-save entry point is only exposed with this flag set.
-  await app.evaluate(`localStorage.setItem("freepdfeditor.debug", "1")`);
-  await app.evaluate("location.reload()");
-  await sleep(1500);
-  await app.waitFor(`!!document.querySelector(".page canvas") && !!window.__fpe`);
-  await sleep(800);
+  await app.debugHandle();
 
   await app.tool("Add text");
   await app.waitFor(`document.querySelectorAll(".blank").length > 0`);
@@ -269,7 +275,43 @@ await session(sample("letter.pdf"), 9334, async (app) => {
     const bytes = await window.__fpe.build();
     await window.__TAURI_INTERNALS__.invoke("write_file", bytes, { headers: { "x-path": encodeURIComponent(${JSON.stringify(saved)}) } });
   })()`);
-  await app.evaluate(`localStorage.removeItem("freepdfeditor.debug")`);
+  check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
+});
+
+// ---- editing keeps the font, however the PDF stores it ----------------------
+
+await session(sample("fonts.pdf"), 9336, async (app) => {
+  await app.debugHandle();
+  await app.tool("Edit text");
+  await app.waitFor(`document.querySelectorAll(".run").length > 0`);
+  await sleep(300);
+  const runs = await app.count(".run");
+  for (let i = 0; i < runs; i++) {
+    const [x, y, w] = await app.center(".run", i);
+    await app.click(x + w / 2 - 2, y);
+    await app.key("Backspace", 8);
+    await app.key("Backspace", 8);
+    await app.key(...ESC);
+  }
+  const style = (item) => `${item.font}${item.bold ? " bold" : ""}${item.italic ? " italic" : ""}`;
+  const got = (await app.evaluate(`window.__fpe.store.items.filter((i) => i.cover).map((i) => ({ font: i.font, bold: i.bold, italic: i.italic }))`)).map(style);
+  // Times New Roman and Arial are the standard Times and Helvetica's twins; either is right.
+  const expected = [
+    ...Array(3).fill(/^(serif|timesnewroman) italic$/),
+    ...Array(2).fill(/^calibri bold$/),
+    ...Array(2).fill(/^(sans|arial) italic$/),
+    /^timesnewroman bold italic$/,
+    /^timesnewroman italic$/,
+  ];
+  check("edited text keeps its font and style under made-up font names", got.length === expected.length && expected.every((want, i) => want.test(got[i])), got.join(", "));
+
+  // Changing the font by hand afterwards still works.
+  await app.tool("Select");
+  await app.clickOn(".item.text", 0);
+  await app.evaluate(`(() => { const select = document.querySelector(".props select[title=Font]"); select.value = "georgia"; select.dispatchEvent(new Event("change")); })()`);
+  await app.clickOn(".props .tb.bold");
+  const changed = await app.evaluate(`(() => { const i = window.__fpe.store.items.find((item) => item.cover); return { font: i.font, bold: i.bold, italic: i.italic }; })()`);
+  check("the font of edited text can be changed from the toolbar", style(changed) === "georgia bold italic", style(changed));
   check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
 });
 
@@ -294,6 +336,7 @@ await session(saved, 9335, async (app) => {
   check("no errors opening it", app.errors.length === 0, app.errors.join("; "));
 });
 rmSync(saved, { force: true });
+rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
 
 console.log(failures ? `\n${failures} check(s) failed` : "\nAll checks passed");
 process.exit(failures ? 1 : 0);

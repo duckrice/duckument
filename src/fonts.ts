@@ -18,6 +18,8 @@ export interface FontDef {
    * everything but letters and digits removed ("timesnewromanpsboldmt").
    */
   match: RegExp;
+  /** A face too unusual to be picked on the strength of similar letter widths alone. */
+  nameOnly?: boolean;
 }
 
 const CSS_CLASS: Record<FontClass, string> = {
@@ -44,7 +46,7 @@ export const FONTS: FontDef[] = [
   system("Arial", "sans", ["arial.ttf", "arialbd.ttf", "ariali.ttf", "arialbi.ttf"], /^arial(?!narrow|black|rounded)|^liberationsans(?!narrow)|^arimo/),
   system("Calibri", "sans", ["calibri.ttf", "calibrib.ttf", "calibrii.ttf", "calibriz.ttf"], /^calibri|^carlito/),
   system("Candara", "sans", ["Candara.ttf", "Candarab.ttf", "Candarai.ttf", "Candaraz.ttf"], /^candara/),
-  system("Comic Sans MS", "sans", ["comic.ttf", "comicbd.ttf", "comici.ttf", "comicz.ttf"], /^comicsans/),
+  { ...system("Comic Sans MS", "sans", ["comic.ttf", "comicbd.ttf", "comici.ttf", "comicz.ttf"], /^comicsans/), nameOnly: true },
   system("Consolas", "mono", ["consola.ttf", "consolab.ttf", "consolai.ttf", "consolaz.ttf"], /^consolas/),
   system("Constantia", "serif", ["constan.ttf", "constanb.ttf", "constani.ttf", "constanz.ttf"], /^constantia/),
   system("Corbel", "sans", ["corbel.ttf", "corbelb.ttf", "corbeli.ttf", "corbelz.ttf"], /^corbel/),
@@ -72,22 +74,6 @@ export interface FontGuess {
   font: string;
   bold: boolean;
   italic: boolean;
-}
-
-/**
- * Picks the closest available font for a font name found in a PDF, such as
- * "ABCDEF+Calibri-BoldItalic". `fontClass` is what the PDF says about the
- * font's general shape, used when the name isn't one we know.
- */
-export function guessFont(name: string, fontClass: FontClass, usable: (def: FontDef) => boolean): FontGuess {
-  const plain = name.replace(/^[A-Z]{6}\+/, "");
-  const key = plain.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const def = FONTS.find((font) => font.match.test(key) && usable(font));
-  return {
-    font: def?.id ?? fontClass,
-    bold: /bold|black|heavy|semibold|demi/i.test(plain),
-    italic: /italic|oblique/i.test(plain),
-  };
 }
 
 const installed = new Map<string, boolean>();

@@ -10,6 +10,8 @@ export interface TextRun extends Box {
   /** Where its baseline starts, in page points as displayed. */
   baseX: number;
   baseline: number;
+  /** How far the text runs along its baseline. */
+  width: number;
   size: number;
   /** pdf.js's internal name for the font, for looking up the real one. */
   fontName: string;
@@ -55,7 +57,8 @@ export function buildRuns(items: unknown[], styles: Record<string, FontStyle>, v
     if (current && current.text.trim()) {
       const { end, ...run } = current;
       run.text = run.text.replace(/\s+$/, "");
-      run.w = end - run.baseX + 2;
+      run.width = end - run.baseX;
+      run.w = run.width + 2;
       runs.push(run);
     }
     current = null;
@@ -103,6 +106,7 @@ export function buildRuns(items: unknown[], styles: Record<string, FontStyle>, v
       text: chunk.str,
       baseX: x,
       baseline,
+      width: 0,
       size,
       fontName: chunk.fontName,
       fontClass: family.includes("mono") ? "mono" : family.includes("sans") ? "sans" : "serif",
