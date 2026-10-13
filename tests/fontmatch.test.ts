@@ -5,7 +5,8 @@ import { identifyFont, sfntStyle, type Measure } from "../src/fontmatch";
 import { FONTS, type FontDef } from "../src/fonts";
 
 const DIR = "C:/Windows/Fonts";
-const windowsFonts = existsSync(`${DIR}/timesi.ttf`) && existsSync(`${DIR}/arial.ttf`) && existsSync(`${DIR}/calibri.ttf`);
+// These tests measure text with the real font files, so they need all of them.
+const windowsFonts = FONTS.every((def) => (def.files ?? []).every((file) => existsSync(`${DIR}/${file}`)));
 
 // The standard PDF fonts share their metrics with these.
 const STANDARD_FILES: Record<string, string[]> = {

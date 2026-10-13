@@ -18,9 +18,11 @@ The signature is a picture of your signature placed on the page. It is not a cer
 
 ## Install
 
-Download the latest `.exe` from the [Releases](../../releases) page and run it.
+**[Download FreePDFEditor-Setup.exe](https://github.com/duckrice/freepdfeditor/releases/latest/download/FreePDFEditor-Setup.exe)** and run it. That one file is all you need; it works on Windows 10 and 11.
 
 Windows may show "Windows protected your PC" because the installer isn't code-signed. Click **More info**, then **Run anyway**.
+
+Afterwards the app is in the Start menu, and in the **Open with** list when you right-click a PDF.
 
 ## Good to know
 
@@ -65,5 +67,5 @@ The app is built with [Tauri](https://tauri.app), [PDF.js](https://mozilla.githu
 ## Releasing
 
 1. Set the new version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`.
-2. Commit, then tag and push: `git tag v0.1.0 && git push --tags`.
-3. GitHub Actions builds the installer and attaches it to a new release.
+2. Commit and push, then tag and push the tag: `git tag v1.0.1 && git push origin v1.0.1`.
+3. GitHub Actions builds the installer and publishes it as a new release. The download link above always points at the newest one.
