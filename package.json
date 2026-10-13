@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "tauri": "tauri",
-    "samples": "node scripts/make-samples.mjs"
+    "samples": "node scripts/make-samples.mjs",
+    "smoke": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

@@ -50,6 +50,7 @@ npm install
 npm run tauri dev     # run the desktop app with live reload
 npm test              # tests for the PDF writing code
 npm run tauri build   # build the installer into src-tauri/target/release/bundle/nsis
+npm run smoke         # drive the built app through a quick end-to-end check
 ```
 
 `npm run dev` runs just the web part in a browser. `npm run samples` generates test PDFs; open one with `http://localhost:1420/?src=/samples/form.pdf`.
