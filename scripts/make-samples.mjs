@@ -204,11 +204,59 @@ async function dotted() {
   writeFileSync(join(out, "dotted.pdf"), await doc.save());
 }
 
+// Paragraphs of running text, one justified, to edit.
+async function paragraphs() {
+  const dir = "C:/Windows/Fonts";
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  const has = existsSync(`${dir}/times.ttf`);
+  const font = has ? await doc.embedFont(readFileSync(`${dir}/times.ttf`), { subset: true }) : await doc.embedFont(StandardFonts.TimesRoman);
+  const bold = has ? await doc.embedFont(readFileSync(`${dir}/timesbd.ttf`), { subset: true }) : await doc.embedFont(StandardFonts.TimesRomanBold);
+  const page = doc.addPage([595, 842]);
+  page.drawText("Workshop 4: Delta to wye transformation", { x: 60, y: 760, size: 18, font: bold });
+  const text =
+    "A delta network of three resistors can be replaced by an equivalent wye network, and the other way round. " +
+    "This makes it possible to simplify circuits that contain neither series nor parallel connections, " +
+    "such as the bridge circuit in the exercise below. Each wye resistor equals the product of the two adjacent " +
+    "delta resistors divided by the sum of all three.";
+  // Lay the paragraph out justified, word by word, as a word processor would.
+  const width = 470;
+  const size = 12;
+  const words = text.split(" ");
+  const lines = [];
+  let line = [];
+  for (const word of words) {
+    if (line.length && font.widthOfTextAtSize([...line, word].join(" "), size) > width) {
+      lines.push(line);
+      line = [];
+    }
+    line.push(word);
+  }
+  lines.push(line);
+  lines.forEach((ws, i) => {
+    const y = 720 - i * 15;
+    if (i === lines.length - 1) {
+      page.drawText(ws.join(" "), { x: 60, y, size, font });
+      return;
+    }
+    const natural = ws.reduce((sum, w) => sum + font.widthOfTextAtSize(w, size), 0);
+    const gap = (width - natural) / (ws.length - 1);
+    let x = 60;
+    for (const w of ws) {
+      page.drawText(w, { x, y, size, font });
+      x += font.widthOfTextAtSize(w, size) + gap;
+    }
+  });
+  page.drawText("Exercise 1: Find the equivalent resistance between A and B.", { x: 60, y: 600, size, font });
+  writeFileSync(join(out, "paragraphs.pdf"), await doc.save());
+}
+
 await form();
 await flat();
 await long();
 await search();
 await dotted();
+await paragraphs();
 await letter();
 await fonts();
 console.log(`Wrote samples to ${out}`);

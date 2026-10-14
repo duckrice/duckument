@@ -21,6 +21,7 @@ import type { Settings } from "./settings";
 import type { Store, Tool } from "./store";
 import { baseline, cssFont } from "./textmetrics";
 import { mergeLineBoxes } from "./shapes";
+import { paragraphText } from "./paragraphs";
 import { runAt, type TextRun } from "./textruns";
 import type { PageView, Viewer } from "./viewer";
 
@@ -465,6 +466,38 @@ export class Interaction {
     const samples = [run, ...others].map((sample) => ({ text: sample.text, width: sample.width / sample.size }));
     const guess = identifyFont(evidence, samples, usable, measureText);
     const style = { ...guess, size: Math.round(run.size * 100) / 100 };
+
+    // A line that is part of a paragraph edits the whole paragraph, so it can re-wrap.
+    const paragraph = view.paragraphs.find((p) => p.runs.includes(run));
+    if (paragraph) {
+      const first = paragraph.runs[0];
+      const last = paragraph.runs[paragraph.runs.length - 1];
+      const text = paragraphText(paragraph);
+      const paraStyle = { ...style, lineHeight: paragraph.lineHeight };
+      const left = Math.min(...paragraph.runs.map((r) => r.x));
+      const right = Math.max(...paragraph.runs.map((r) => r.x + r.w));
+      const item: TextItem = {
+        id: newId(),
+        page: view.index,
+        type: "text",
+        x: paragraph.x,
+        y: first.baseline - baseline(paraStyle),
+        text,
+        ...paraStyle,
+        width: paragraph.width,
+        indent: paragraph.indent || undefined,
+        align: paragraph.justified ? "justify" : "left",
+        color: ink,
+        cover: { x: left, y: first.y, w: right - left, h: last.y + last.h - first.y, color: background, original: text },
+      };
+      // Put the cursor where the click was: in the clicked line, at the nearest letter.
+      const before = paragraph.runs.slice(0, paragraph.runs.indexOf(run)).reduce((sum, r) => sum + r.text.length + 1, 0);
+      const within = caretIndex({ ...item, x: run.baseX, text: run.text, width: undefined }, x);
+      this.store.add(item);
+      this.overlay.startEdit(item.id, Math.min(text.length, before + within));
+      return;
+    }
+
     const item: TextItem = {
       id: newId(),
       page: view.index,

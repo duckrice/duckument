@@ -22,6 +22,7 @@ import type { Matrix } from "./export";
 import type { TextPiece } from "./findtext";
 import type { FontEvidence } from "./fontmatch";
 import type { Box, PageRef } from "./model";
+import { findParagraphs, type Paragraph } from "./paragraphs";
 import { buildRuns, type TextRun } from "./textruns";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
@@ -94,6 +95,8 @@ export interface PageView {
   /** Null until looked for. */
   blanks: Blank[] | null;
   runs: TextRun[] | null;
+  /** Lines of text that belong together, found with the runs. */
+  paragraphs: Paragraph[];
 }
 
 export interface ViewerHooks {
@@ -331,6 +334,7 @@ export class Viewer {
       // A blank page has nothing to find.
       blanks: ref.blank ? [] : null,
       runs: ref.blank ? [] : null,
+      paragraphs: [],
     };
     this.setPageSize(view, width, height);
     return view;
@@ -725,6 +729,7 @@ export class Viewer {
     const content = await page.getTextContent();
     if (generation !== this.generation) return;
     view.runs = buildRuns(content.items, content.styles, page.getViewport({ scale: 1 }).transform);
+    view.paragraphs = findParagraphs(view.runs);
     view.runsEl.replaceChildren(
       ...view.runs.map((r) =>
         h("div", { class: "run", style: `left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px` }),

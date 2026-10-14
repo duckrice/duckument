@@ -31,6 +31,13 @@ export interface TextItem extends ItemBase {
    * what the original said.
    */
   cover?: Box & { color: string; original: string };
+  /** For a paragraph: the width its words wrap to (without it, only "\n" breaks lines). */
+  width?: number;
+  /** How far a paragraph's first line is indented. */
+  indent?: number;
+  align?: "left" | "justify";
+  /** Distance between baselines as a multiple of the size; LINE_HEIGHT when not set. */
+  lineHeight?: number;
 }
 
 export interface ShapeItem extends ItemBase, Box {

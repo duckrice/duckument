@@ -1278,3 +1278,33 @@ select {
 .tb.labelled-small {
   padding: 0 8px;
 }
+
+/* ---- paragraphs ------------------------------------------------------------ */
+
+/* A paragraph is shown in the lines worked out for it (the same as in the file);
+   while typing it wraps by itself to the same width. */
+.item.text.paragraph {
+  white-space: normal;
+}
+
+.item.text.paragraph .line {
+  white-space: nowrap;
+}
+
+/* A justified line spreads its words over the full width. */
+.item.text.paragraph .line.spread {
+  text-align: justify;
+  text-align-last: justify;
+}
+
+.item.text.paragraph.editing .text-sizer,
+.item.text.paragraph.editing .text-editor {
+  white-space: pre-wrap;
+}
+
+.item.text.paragraph.editing .text-editor {
+  width: 100%;
+  overflow: hidden;
+  text-indent: inherit;
+  text-align: inherit;
+}

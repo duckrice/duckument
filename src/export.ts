@@ -41,6 +41,8 @@ import {
 } from "pdf-lib";
 import { fontDef, fontFile, type FontClass } from "./fonts";
 import { LINE_HEIGHT, NOTE_SIZE, isMarkup, type ImageItem, type Item, type MarkupItem, type NoteItem, type PageRef, type TextItem } from "./model";
+import { removeTextFromPage } from "./contentedit";
+import { layoutText } from "./paragraphs";
 import { markBars, paints, type Paint } from "./shapes";
 
 export type Matrix = [number, number, number, number, number, number];
@@ -57,6 +59,13 @@ export interface ExportEnv {
   rasterizeText?(item: TextItem): Promise<ImageItem | null>;
   /** Reads a font file from the system's Fonts folder; null if it isn't there. */
   loadFont?(file: string): Promise<Uint8Array | null>;
+  /**
+   * Width of text in points as the screen measures it, so paragraphs wrap the
+   * same way in the file. Without it, the embedded font's widths are used.
+   */
+  measure?(item: TextItem, text: string): number;
+  /** Told how many edited pieces of text could only be painted over, not removed. */
+  onCoverOnly?(count: number): void;
 }
 
 export class EncryptedPdfError extends Error {
@@ -212,8 +221,9 @@ class Writer {
     const font = await this.font(item);
     let known = this.charsets.get(font);
     if (!known) this.charsets.set(font, (known = new Set(font.getCharacterSet())));
-    const lines = item.text.split("\n");
-    const encodable = lines.every((line) => [...line].every((ch) => known.has(ch.codePointAt(0)!)));
+    const measure = (text: string) => (this.env.measure ? this.env.measure(item, text) : font.widthOfTextAtSize(text, item.size));
+    const lines = layoutText(item, measure);
+    const encodable = lines.every((line) => [...line.text].every((ch) => known.has(ch.codePointAt(0)!)));
     if (!encodable) {
       const picture = await this.env.rasterizeText?.(item);
       if (picture) return this.imageOps(page, picture);
@@ -227,14 +237,18 @@ class Writer {
       beginText(),
       setFontAndSize(name, item.size),
     ];
+    // Drop anything the font can't encode instead of failing the whole save.
+    const clean = (text: string) => (encodable ? text : [...text].filter((ch) => known.has(ch.codePointAt(0)!)).join(""));
+    const lineHeight = item.size * (item.lineHeight ?? LINE_HEIGHT);
     lines.forEach((line, i) => {
-      // Drop anything the font can't encode instead of failing the whole save.
-      const text = encodable ? line : [...line].filter((ch) => known.has(ch.codePointAt(0)!)).join("");
-      if (!text) return;
-      ops.push(
-        setTextMatrix(1, 0, 0, -1, item.x, first + i * item.size * LINE_HEIGHT),
-        showText(font.encodeText(text)),
-      );
+      const y = first + i * lineHeight;
+      // A justified line places each word, spreading them to the full width.
+      const pieces = line.words ?? [{ text: line.text, x: 0 }];
+      for (const piece of pieces) {
+        const text = clean(piece.text);
+        if (!text) continue;
+        ops.push(setTextMatrix(1, 0, 0, -1, item.x + line.x + piece.x, y), showText(font.encodeText(text)));
+      }
     });
     ops.push(endText(), popGraphicsState());
     return ops;
@@ -276,13 +290,17 @@ class Writer {
     page.node.addAnnot(this.doc.context.register(annotation));
   }
 
-  async write(page: PDFPage, index: number, items: Item[]) {
+  /**
+   * @param removed ids of edited text whose original was taken out of the page
+   *   for real; those need no cover.
+   */
+  async write(page: PDFPage, index: number, items: Item[], removed: Set<string> = new Set()) {
     const ops: PDFOperator[] = [];
     const notes: NoteItem[] = [];
     // Everything that hides original text goes down first, so one replacement's
     // cover can't paint over the new text of its neighbour.
     for (const item of items) {
-      if (item.type !== "text" || !item.cover) continue;
+      if (item.type !== "text" || !item.cover || removed.has(item.id)) continue;
       const { x, y, w, h, color: fillColor } = item.cover;
       ops.push(
         pushGraphicsState(),
@@ -402,6 +420,34 @@ export async function assemblePdf(sources: SourceBytes, primary: string, pages: 
     if (!list) byPage.set(item.page, (list = []));
     list.push(item);
   }
-  for (const [index, list] of byPage) await writer.write(finalPages[index], index, list);
+  let coverOnly = 0;
+  for (const [index, list] of byPage) {
+    // Text that was edited is taken out of the page itself where possible.
+    const edited = list.filter((item): item is TextItem => item.type === "text" && !!item.cover);
+    const removed = new Set<string>();
+    if (edited.length) {
+      const toPdf = invert(await env.pageTransform(index));
+      const rects = edited.map((item) => {
+        const { x, y, w, h } = item.cover!;
+        const corners = [apply(toPdf, x, y), apply(toPdf, x + w, y), apply(toPdf, x, y + h), apply(toPdf, x + w, y + h)];
+        const xs = corners.map((c) => c[0]);
+        const ys = corners.map((c) => c[1]);
+        return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] as [number, number, number, number];
+      });
+      let results: boolean[];
+      try {
+        results = removeTextFromPage(doc, finalPages[index], rects);
+      } catch (error) {
+        console.warn("Could not remove text from the page; painting over it instead", error);
+        results = rects.map(() => false);
+      }
+      edited.forEach((item, i) => {
+        if (results[i]) removed.add(item.id);
+        else coverOnly++;
+      });
+    }
+    await writer.write(finalPages[index], index, list, removed);
+  }
+  if (coverOnly) env.onCoverOnly?.(coverOnly);
   return doc.save();
 }

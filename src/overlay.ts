@@ -6,7 +6,7 @@ import { h, svg } from "./dom";
 import { NOTE_SIZE, isLine, isMarkup, type Box, type Item, type NoteItem, type TextItem } from "./model";
 import { markBars, paints, svgPath } from "./shapes";
 import type { Store } from "./store";
-import { cssFont } from "./textmetrics";
+import { cssFont, linesOf } from "./textmetrics";
 import type { Viewer } from "./viewer";
 
 type ItemElement = HTMLElement | SVGSVGElement;
@@ -138,9 +138,21 @@ export class Overlay {
       style.top = `${item.y}px`;
       style.font = cssFont(item);
       style.color = item.color;
+      const wrapped = item.width !== undefined;
+      el.classList.toggle("paragraph", wrapped);
+      style.width = wrapped ? `${item.width}px` : "";
+      style.textIndent = wrapped && item.indent ? `${item.indent}px` : "";
+      style.textAlign = wrapped && item.align === "justify" ? "justify" : "";
       // A trailing zero-width space keeps an empty last line from collapsing.
       if (this.editingId === item.id) this.sizer.textContent = `${item.text}​`;
-      else el.textContent = item.text;
+      else if (wrapped) {
+        // The same lines the saved file will have.
+        el.replaceChildren(
+          ...linesOf(item).map((line) =>
+            h("div", { class: `line${line.words ? " spread" : ""}`, style: line.x ? `padding-left:${line.x}px` : "" }, line.text || "​"),
+          ),
+        );
+      } else el.textContent = item.text;
     } else if (isMarkup(item)) {
       // Transparent boxes that take the pointer; the colour is painted in the page's blend layer.
       el.replaceChildren(
@@ -331,6 +343,8 @@ export class Overlay {
     el.classList.add("editing");
     this.sizer.textContent = `${item.text}​`;
     this.editor.value = item.text;
+    // A paragraph wraps while typing; a plain text item only breaks at Enter.
+    this.editor.wrap = item.width !== undefined ? "soft" : "off";
     el.replaceChildren(this.sizer, this.editor);
     this.editor.focus({ preventScroll: true });
     if (caret === "all") this.editor.select();

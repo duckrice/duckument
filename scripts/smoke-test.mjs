@@ -617,6 +617,44 @@ await session(sample("dotted.pdf"), 9346, async (app) => {
   await app.shoot("dotted-dashed-shaded");
 });
 
+// ---- editing a whole paragraph ------------------------------------------------
+
+const rewrapped = join(tmpdir(), "duckument-smoke-paragraph.pdf");
+await session(sample("paragraphs.pdf"), 9347, async (app) => {
+  await app.debugHandle();
+  await app.tool("Edit text");
+  await app.waitFor(`document.querySelectorAll(".run").length > 0`, 8000);
+  // The second line of the paragraph.
+  const [x, y, w] = await app.center(".run", 2);
+  await app.click(x - w * 0.3, y);
+  const item = () => app.evaluate("(() => { const i = window.__fpe.store.items[0]; return i && { text: i.text, width: i.width, align: i.align, lineHeight: i.lineHeight }; })()");
+  const before = await item();
+  check("clicking a line in a paragraph edits the whole paragraph", before?.text.startsWith("A delta network") && before.text.endsWith("sum of all three.") && before.align === "justify", JSON.stringify(before));
+  await app.key("Home", 36);
+  await app.type("Note: ");
+  await app.key(...ESC);
+  await app.key(...ESC);
+  const lines = await app.evaluate(`[...document.querySelectorAll(".item.text.paragraph .line")].map((l) => l.textContent)`);
+  check("the paragraph re-wraps to its width", lines.length >= 4 && lines[0].startsWith("A delta") === false, JSON.stringify(lines));
+  await app.shoot("paragraph-edited");
+  await app.evaluate(`(async () => {
+    const bytes = await window.__fpe.build();
+    await window.__TAURI_INTERNALS__.invoke("write_file", bytes, { headers: { "x-path": encodeURIComponent(${JSON.stringify(rewrapped)}) } });
+  })()`);
+  check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
+});
+{
+  const page = await (await pdfjs.getDocument({ data: new Uint8Array(readFileSync(rewrapped)), verbosity: 0 }).promise).getPage(1);
+  const all = (await page.getTextContent()).items.map((i) => i.str).join(" ");
+  const occurrences = (all.match(/delta network/g) ?? []).length;
+  check("the saved paragraph has the new text, once", all.includes("Note:") && occurrences === 1, all.slice(0, 300));
+  check("text around it is untouched", all.includes("Workshop 4: Delta to wye transformation") && all.includes("Exercise 1"));
+}
+await session(rewrapped, 9348, async (app) => {
+  await app.shoot("paragraph-saved");
+});
+rmSync(rewrapped, { force: true });
+
 // ---- a flat form: blanks, editing text, and the saved file ------------------
 
 const saved = join(tmpdir(), "freepdfeditor-smoke-saved.pdf");
@@ -763,6 +801,9 @@ await session(sample("flat.pdf"), 9337, async (app) => {
   check("saved file has the tick drawn in", ops.fnArray.filter((fn) => fn === pdfjs.OPS.constructPath).length > 0);
   check("saved file has the edited text in the document's font", /^Calibri-\d+$/.test(fontOf("Riverside Tennis Club, founded 1992 in Bergen") ?? ""), String(fontOf("Riverside Tennis Club, founded 1992 in Bergen")));
   check("including the bold heading", /^Calibri-Bold-\d+$/.test(fontOf("Søknad om medlemskap") ?? ""), String(fontOf("Søknad om medlemskap")));
+  const everything = content.items.map((i) => i.str).join(" ");
+  check("the edited original words are gone from the saved file", !everything.includes("1987") && !everything.includes("Membership application"), everything.slice(0, 200));
+  check("the deleted instructions are gone too", !everything.includes("block let"));
   const grew = readFileSync(saved).length - readFileSync(sample("letter.pdf")).length;
   check("embeds only the letters used, not whole fonts", grew < 80_000, `${grew} bytes added`);
 }

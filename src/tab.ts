@@ -10,7 +10,7 @@ import { blankPage, deletePages, insertPages, itemsFor, movePages, pagesOf, rota
 import { baseName, isDesktop, pickImage, pickPdf, pickSavePath, readSystemFont, writePath, type OpenedFile } from "./platform";
 import type { Settings } from "./settings";
 import { Store } from "./store";
-import { baseline, rasterizeText } from "./textmetrics";
+import { baseline, measureWidth, rasterizeText } from "./textmetrics";
 import { Thumbnails } from "./thumbnails";
 import { OpenCancelled, PRIMARY, Viewer } from "./viewer";
 
@@ -223,6 +223,13 @@ export class DocTab {
       baseline,
       rasterizeText,
       loadFont: isDesktop ? readSystemFont : undefined,
+      measure: measureWidth,
+      onCoverOnly: (count) =>
+        this.hooks.toast(
+          count === 1
+            ? "One piece of edited text could only be painted over, not removed, because of how this PDF stores it."
+            : `${count} pieces of edited text could only be painted over, not removed, because of how this PDF stores them.`,
+        ),
     };
   }
 
