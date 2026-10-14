@@ -1,3 +1,5 @@
+import type { MarkKind } from "./model";
+
 /** What the next added item looks like; remembered between sessions. */
 export interface Settings {
   /** A font id from fonts.ts. */
@@ -11,6 +13,10 @@ export interface Settings {
   fill: string | null;
   /** Whether the page sidebar is shown. */
   showPages: boolean;
+  /** What the markup tool does, and its colour for each kind of mark. */
+  markKind: MarkKind;
+  markColors: Record<MarkKind, string>;
+  noteColor: string;
 }
 
 const KEY = "freepdfeditor.settings";
@@ -25,6 +31,9 @@ const DEFAULTS: Settings = {
   strokeWidth: 1.5,
   fill: null,
   showPages: true,
+  markKind: "highlight",
+  markColors: { highlight: "#ffe14d", underline: "#d92626", strike: "#d92626" },
+  noteColor: "#ffd43b",
 };
 
 export function loadSettings(): Settings {

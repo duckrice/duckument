@@ -14,6 +14,8 @@ rmSync(to, { recursive: true, force: true });
 for (const dir of ["cmaps", "standard_fonts", "wasm", "iccs"]) {
   cpSync(join(from, dir), join(to, dir), { recursive: true });
 }
+// Icons for comments (sticky notes) in opened files.
+cpSync(join(from, "web", "images"), join(to, "images"), { recursive: true, filter: (path) => !/\.(svg|png)$/i.test(path) || /annotation-/.test(path) });
 
 const css = readFileSync(join(from, "web", "pdf_viewer.css"), "utf8");
 // The text layer (for selecting text) comes right before the form layer.

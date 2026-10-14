@@ -28,6 +28,8 @@ const PATHS = {
   extract: '<path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M12 10v7M9 14l3 3 3-3"/>',
   pages: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
   up: '<path d="m6 15 6-6 6 6"/>',
+  highlighter: '<path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.600 4.600a2 2 0 0 1-2.800 0l-5.200-5.200a2 2 0 0 1 0-2.800L14 4"/>',
+  note: '<path d="M4 4h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-9l-5 4v-4H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
   caret: '<path d="m7 10 5 5 5-5"/>',

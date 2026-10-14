@@ -65,6 +65,8 @@ export interface PageView {
   el: HTMLElement;
   inner: HTMLElement;
   canvasWrap: HTMLElement;
+  /** Colour blended into the page: highlights and search matches. */
+  marks: HTMLElement;
   /** Search matches. */
   hits: HTMLElement;
   /** Invisible copy of the page's text, for selecting and copying it. Null until the page is first drawn. */
@@ -300,8 +302,9 @@ export class Viewer {
     const items = h("div", { class: "items" });
     const chrome = h("div", { class: "chrome" });
     const hits = h("div", { class: "hits" });
-    const overlay = h("div", { class: "overlay" }, hits, blanksEl, runsEl, covers, items, chrome);
-    const inner = h("div", { class: "page-inner" }, canvasWrap, overlay);
+    const marks = h("div", { class: "marks" }, hits);
+    const overlay = h("div", { class: "overlay" }, blanksEl, runsEl, covers, items, chrome);
+    const inner = h("div", { class: "page-inner" }, canvasWrap, marks, overlay);
     const el = h("div", { class: "page" }, inner);
     const view: PageView = {
       ref,
@@ -309,6 +312,7 @@ export class Viewer {
       el,
       inner,
       canvasWrap,
+      marks,
       hits,
       textLayer: null,
       text: ref.blank ? [] : null,
@@ -610,14 +614,15 @@ export class Viewer {
   }
 
   private async buildForms(view: PageView, page: PDFPageProxy) {
-    const annotations = (await page.getAnnotations({ intent: "display" })).filter(
-      (annotation) => annotation.subtype === "Widget",
+    // Form fields, and comments (sticky notes) with their pop-ups.
+    const annotations = (await page.getAnnotations({ intent: "display" })).filter((annotation) =>
+      ["Widget", "Text", "Popup"].includes(annotation.subtype),
     );
     const source = this.sources.get(view.ref.source);
     if (!annotations.length || !source || view.pdfPage !== page) return;
 
     const upright = page.getViewport({ scale: 1 });
-    view.widgets = annotations.map((annotation) => {
+    view.widgets = annotations.filter((annotation) => annotation.subtype === "Widget").map((annotation) => {
       const [x1, y1] = upright.convertToViewportPoint(annotation.rect[0], annotation.rect[1]);
       const [x2, y2] = upright.convertToViewportPoint(annotation.rect[2], annotation.rect[3]);
       return { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) };
@@ -648,7 +653,7 @@ export class Viewer {
       linkService: linkService as never,
       annotationStorage,
       renderForms: true,
-      imageResourcesPath: "",
+      imageResourcesPath: asset("images"),
       enableScripting: false,
       hasJSActions: false,
       fieldObjects: null,

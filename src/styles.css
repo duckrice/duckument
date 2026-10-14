@@ -699,8 +699,9 @@ select {
   pointer-events: none;
 }
 
-/* While a tool is active the whole page takes the pointer, not what's under it. */
-.viewer:not([data-tool="select"]) .overlay {
+/* While a tool is active the whole page takes the pointer, not what's under it
+   (except Highlight, which works on the page's own text). */
+.viewer:not([data-tool="select"]):not([data-tool="markup"]) .overlay {
   pointer-events: auto;
 }
 
@@ -1186,16 +1187,94 @@ select {
 .hit {
   position: absolute;
   border-radius: calc(1.5px / var(--s));
-  background: rgb(255 214 0 / 0.45);
-  mix-blend-mode: multiply;
+  background: rgb(255 226 90);
 }
 
 .hit.current {
-  background: rgb(255 140 0 / 0.65);
+  background: rgb(255 160 60);
   outline: calc(1px / var(--s)) solid rgb(230 100 0);
 }
 
-/* The page's own text can be selected in Select mode only. */
-.viewer:not([data-tool="select"]) .textLayer {
+/* The page's own text can be selected in Select and Highlight mode only. */
+.viewer:not([data-tool="select"]):not([data-tool="markup"]) .textLayer {
   pointer-events: none;
+}
+
+/* ---- highlights and comments ------------------------------------------------ */
+
+/* Colour blended into the page, like a highlighter: text under it stays dark. */
+.marks {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  width: calc(var(--w) * 1px);
+  height: calc(var(--h) * 1px);
+  transform: scale(var(--s));
+  transform-origin: 0 0;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
+.markup-paint > div {
+  position: absolute;
+}
+
+.item.markup {
+  top: 0;
+  left: 0;
+}
+
+.markup-hit {
+  position: absolute;
+}
+
+.viewer[data-tool="select"] .markup-hit {
+  pointer-events: auto;
+  cursor: move;
+}
+
+.item.note {
+  width: 18px;
+  height: 18px;
+  pointer-events: auto;
+  cursor: pointer;
+  filter: drop-shadow(0 0.5px 1px rgb(0 0 0 / 0.3));
+}
+
+.viewer:is([data-tool="note"]) .overlay {
+  cursor: copy;
+}
+
+.note-popup {
+  position: absolute;
+  z-index: 5;
+  width: 170px;
+  padding: 5px 7px;
+  border: 1.5px solid #ffd43b;
+  border-radius: 5px;
+  background: #fffdf2;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
+  pointer-events: auto;
+}
+
+.note-text {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #222;
+  font: 9px/1.35 "Segoe UI", system-ui, sans-serif;
+  resize: none;
+  user-select: text;
+}
+
+.selection.fixed .handle {
+  display: none;
+}
+
+.tb.labelled-small {
+  padding: 0 8px;
 }

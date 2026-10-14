@@ -70,7 +70,32 @@ export interface ImageItem extends ItemBase, Box {
   src: string;
 }
 
-export type Item = TextItem | ShapeItem | LineItem | MarkItem | PenItem | ImageItem;
+export type MarkKind = "highlight" | "underline" | "strike";
+
+/** A highlight, underline or strike-through over a stretch of the document's text. */
+export interface MarkupItem extends ItemBase {
+  type: MarkKind;
+  /** One box per line of marked text. */
+  rects: Box[];
+  color: string;
+  /** The text that was marked. */
+  text: string;
+}
+
+/** A sticky note: an icon on the page with a comment behind it. */
+export interface NoteItem extends ItemBase {
+  type: "note";
+  /** Top left of the icon. */
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+}
+
+/** Size of a note's icon, in points. */
+export const NOTE_SIZE = 18;
+
+export type Item = TextItem | ShapeItem | LineItem | MarkItem | PenItem | ImageItem | MarkupItem | NoteItem;
 export type BoxItem = ShapeItem | MarkItem | PenItem | ImageItem;
 
 export const LINE_HEIGHT = 1.2;
@@ -79,8 +104,12 @@ export function isLine(item: Item): item is LineItem {
   return item.type === "line" || item.type === "arrow";
 }
 
+export function isMarkup(item: Item): item is MarkupItem {
+  return item.type === "highlight" || item.type === "underline" || item.type === "strike";
+}
+
 export function isBoxItem(item: Item): item is BoxItem {
-  return item.type !== "text" && !isLine(item);
+  return item.type !== "text" && item.type !== "note" && !isLine(item) && !isMarkup(item);
 }
 
 let counter = 0;
@@ -92,7 +121,10 @@ export function translate<T extends Item>(item: T, dx: number, dy: number): T {
   if (isLine(item)) {
     return { ...item, x1: item.x1 + dx, y1: item.y1 + dy, x2: item.x2 + dx, y2: item.y2 + dy };
   }
-  const boxed = item as Exclude<Item, LineItem>;
+  if (isMarkup(item)) {
+    return { ...item, rects: item.rects.map((r) => ({ ...r, x: r.x + dx, y: r.y + dy })) };
+  }
+  const boxed = item as Exclude<Item, LineItem | MarkupItem>;
   return { ...boxed, x: boxed.x + dx, y: boxed.y + dy } as T;
 }
 

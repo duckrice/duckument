@@ -3,8 +3,8 @@
 // scaled as a whole, so nothing here needs to know the zoom level.
 
 import { h, svg } from "./dom";
-import { isLine, type Box, type Item, type TextItem } from "./model";
-import { paints, svgPath } from "./shapes";
+import { NOTE_SIZE, isLine, isMarkup, type Box, type Item, type NoteItem, type TextItem } from "./model";
+import { markBars, paints, svgPath } from "./shapes";
 import type { Store } from "./store";
 import { cssFont } from "./textmetrics";
 import type { Viewer } from "./viewer";
@@ -16,6 +16,8 @@ interface Rendered {
   item: Item | null;
   /** The patch hiding the original text, for text that replaces some. */
   cover: HTMLElement | null;
+  /** What a highlight, underline or strike-through paints, blended with the page. */
+  paint: HTMLElement | null;
 }
 
 const BOX_HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
@@ -33,6 +35,9 @@ export class Overlay {
   private boxHandles = BOX_HANDLES.map((name) => h("div", { class: `handle ${name}`, "data-handle": name }));
   private lineHandles = ["p1", "p2"].map((name) => h("div", { class: "handle", "data-handle": name }));
   private editor = h("textarea", { class: "text-editor", spellcheck: "false", rows: 1, wrap: "off" });
+  /** The comment of the selected note. */
+  private notePopup = h("div", { class: "note-popup" });
+  private noteText = h("textarea", { class: "note-text", placeholder: "Write a comment", rows: 4 });
   private sizer = h("span", { class: "text-sizer" });
 
   constructor(
@@ -56,6 +61,20 @@ export class Overlay {
       }
     });
     this.editor.addEventListener("blur", () => this.finishEdit());
+    this.notePopup.append(this.noteText);
+    this.noteText.addEventListener("input", () => {
+      const note = this.store.selected;
+      if (note?.type === "note") this.store.replace({ ...note, text: this.noteText.value });
+    });
+    this.noteText.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        this.noteText.blur();
+      }
+    });
+    this.noteText.addEventListener("blur", () => this.finishNote());
+    // Presses inside the comment box are for the text, not the page underneath.
+    this.notePopup.addEventListener("pointerdown", (event) => event.stopPropagation());
     store.subscribe(() => this.sync());
   }
 
@@ -72,6 +91,7 @@ export class Overlay {
       if (!ids.has(id)) {
         record.el.remove();
         record.cover?.remove();
+        record.paint?.remove();
         this.rendered.delete(id);
       }
     }
@@ -84,12 +104,13 @@ export class Overlay {
       if (!host) continue;
       let record = this.rendered.get(item.id);
       if (!record) {
-        record = { el: this.create(item), item: null, cover: null };
+        record = { el: this.create(item), item: null, cover: null, paint: null };
         this.rendered.set(item.id, record);
       }
       if (record.item !== item) {
         this.update(record.el, item);
         this.updateCover(record, item);
+        this.updatePaint(record, item);
         record.item = item;
       }
       const cursor = cursors.has(host) ? cursors.get(host)! : host.firstElementChild;
@@ -105,6 +126,8 @@ export class Overlay {
   private create(item: Item): ItemElement {
     if (item.type === "text") return h("div", { class: "item text", "data-id": item.id });
     if (item.type === "image") return h("img", { class: "item image", "data-id": item.id, draggable: "false" });
+    if (isMarkup(item)) return h("div", { class: "item markup", "data-id": item.id });
+    if (item.type === "note") return h("div", { class: "item note", "data-id": item.id, title: "Comment", html: NOTE_ICON });
     return svg("svg", { class: "item shape", "data-id": item.id, width: 1, height: 1 });
   }
 
@@ -118,6 +141,16 @@ export class Overlay {
       // A trailing zero-width space keeps an empty last line from collapsing.
       if (this.editingId === item.id) this.sizer.textContent = `${item.text}​`;
       else el.textContent = item.text;
+    } else if (isMarkup(item)) {
+      // Transparent boxes that take the pointer; the colour is painted in the page's blend layer.
+      el.replaceChildren(
+        ...item.rects.map((r) => h("div", { class: "markup-hit", style: `left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px` })),
+      );
+    } else if (item.type === "note") {
+      const style = (el as HTMLElement).style;
+      style.left = `${item.x}px`;
+      style.top = `${item.y}px`;
+      style.color = item.color;
     } else if (item.type === "image") {
       const img = el as HTMLImageElement;
       img.style.left = `${item.x}px`;
@@ -169,6 +202,22 @@ export class Overlay {
     record.cover.style.cssText = `left:${cover.x}px;top:${cover.y}px;width:${cover.w}px;height:${cover.h}px;background:${cover.color}`;
   }
 
+  private updatePaint(record: Rendered, item: Item) {
+    const host = this.viewer.pages[item.page]?.marks;
+    if (!isMarkup(item) || !host) {
+      record.paint?.remove();
+      record.paint = null;
+      return;
+    }
+    record.paint ??= h("div", { class: "markup-paint" });
+    if (record.paint.parentNode !== host) host.append(record.paint);
+    record.paint.replaceChildren(
+      ...markBars(item).map((b) =>
+        h("div", { style: `left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;background:${item.color}` }),
+      ),
+    );
+  }
+
   /** The item's bounding box in page points. */
   box(item: Item): Box {
     if (isLine(item)) {
@@ -176,6 +225,14 @@ export class Overlay {
       const y = Math.min(item.y1, item.y2);
       return { x, y, w: Math.abs(item.x2 - item.x1), h: Math.abs(item.y2 - item.y1) };
     }
+    if (isMarkup(item)) {
+      const left = Math.min(...item.rects.map((r) => r.x));
+      const top = Math.min(...item.rects.map((r) => r.y));
+      const right = Math.max(...item.rects.map((r) => r.x + r.w));
+      const bottom = Math.max(...item.rects.map((r) => r.y + r.h));
+      return { x: left, y: top, w: right - left, h: bottom - top };
+    }
+    if (item.type === "note") return { x: item.x, y: item.y, w: NOTE_SIZE, h: NOTE_SIZE };
     if (item.type === "text") {
       const el = this.rendered.get(item.id)?.el;
       const rect = el?.getBoundingClientRect();
@@ -192,6 +249,7 @@ export class Overlay {
   private syncSelection() {
     const item = this.store.selected;
     const chrome = item && this.viewer.pages[item.page]?.chrome;
+    this.syncNotePopup(item?.type === "note" ? item : null);
     if (!item || !chrome) {
       this.selection.remove();
       return;
@@ -211,7 +269,9 @@ export class Overlay {
 
     const box = this.box(item);
     const cornersOnly = item.type === "text" || item.type === "image" || item.type === "check" || item.type === "cross";
-    this.selection.className = `selection box${cornersOnly ? " corners-only" : ""}${
+    // Marks follow the text they were made on, and notes are a fixed size: neither is resized.
+    const fixed = isMarkup(item) || item.type === "note";
+    this.selection.className = `selection box${cornersOnly ? " corners-only" : ""}${fixed ? " fixed" : ""}${
       this.editingId === item.id ? " editing" : ""
     }`;
     style.left = `${box.x}px`;
@@ -219,6 +279,36 @@ export class Overlay {
     style.width = `${box.w}px`;
     style.height = `${box.h}px`;
     if (this.boxHandles[0].parentNode !== this.selection) this.selection.replaceChildren(...this.boxHandles);
+  }
+
+  // ---- notes ----------------------------------------------------------------
+
+  private syncNotePopup(note: NoteItem | null) {
+    const chrome = note && this.viewer.pages[note.page]?.chrome;
+    if (!note || !chrome) {
+      if (this.notePopup.isConnected) this.notePopup.remove();
+      return;
+    }
+    if (this.notePopup.parentNode !== chrome) chrome.append(this.notePopup);
+    this.notePopup.style.left = `${note.x + NOTE_SIZE + 6}px`;
+    this.notePopup.style.top = `${note.y}px`;
+    this.notePopup.style.borderColor = note.color;
+    if (document.activeElement !== this.noteText) this.noteText.value = note.text;
+  }
+
+  /** Puts the cursor in the comment of a note, which must be selected. */
+  editNote(id: string) {
+    this.store.select(id);
+    this.syncSelection();
+    this.noteText.focus({ preventScroll: true });
+    this.noteText.setSelectionRange(this.noteText.value.length, this.noteText.value.length);
+  }
+
+  /** A note left empty is removed; anything else becomes an undo step. */
+  private finishNote() {
+    const note = this.store.selected;
+    if (note?.type === "note" && !note.text.trim()) this.store.remove(note.id);
+    this.store.commit();
   }
 
   // ---- text editing -------------------------------------------------------
@@ -278,3 +368,7 @@ export class Overlay {
     this.sync();
   }
 }
+
+/** A speech bubble, filled with the note's colour. */
+const NOTE_ICON =
+  '<svg viewBox="0 0 24 24" width="100%" height="100%"><path d="M4 3h16a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H10l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" fill="currentColor" stroke="rgb(0 0 0 / 0.55)" stroke-width="1.2"/><path d="M7 8h10M7 12h7" stroke="rgb(0 0 0 / 0.55)" stroke-width="1.5" stroke-linecap="round"/></svg>';

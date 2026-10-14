@@ -34,10 +34,14 @@ import {
   setTextMatrix,
   showText,
   stroke,
+  setGraphicsState,
+  PDFHexString,
+  PDFRef,
+  PDFString,
 } from "pdf-lib";
 import { fontDef, fontFile, type FontClass } from "./fonts";
-import { LINE_HEIGHT, type ImageItem, type Item, type PageRef, type TextItem } from "./model";
-import { paints, type Paint } from "./shapes";
+import { LINE_HEIGHT, NOTE_SIZE, isMarkup, type ImageItem, type Item, type MarkupItem, type NoteItem, type PageRef, type TextItem } from "./model";
+import { markBars, paints, type Paint } from "./shapes";
 
 export type Matrix = [number, number, number, number, number, number];
 
@@ -88,6 +92,16 @@ function color(hex: string) {
   return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
 }
 
+function apply([a, b, c, d, e, f]: Matrix, x: number, y: number): [number, number] {
+  return [a * x + c * y + e, b * x + d * y + f];
+}
+
+/** A date as PDFs write it: D:YYYYMMDDHHmmSS. */
+function pdfDate(date = new Date()): string {
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `D:${date.getFullYear()}${two(date.getMonth() + 1)}${two(date.getDate())}${two(date.getHours())}${two(date.getMinutes())}${two(date.getSeconds())}`;
+}
+
 function invert([a, b, c, d, e, f]: Matrix): Matrix {
   const det = a * d - b * c;
   return [d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det];
@@ -128,6 +142,8 @@ class Writer {
   /** Embedded system fonts by file name; null for files that couldn't be used. */
   private systemFonts = new Map<string, PDFFont | null>();
   private images = new Map<string, PDFImage>();
+  /** A graphics state that blends colour into the page like a highlighter. */
+  private multiply: PDFRef | null = null;
   private charsets = new Map<PDFFont, Set<number>>();
 
   constructor(
@@ -224,8 +240,45 @@ class Writer {
     return ops;
   }
 
+  /** A highlight, underline or strike-through, blended so the text under it stays readable. */
+  private markupOps(page: PDFPage, item: MarkupItem): PDFOperator[] {
+    this.multiply ??= this.doc.context.register(this.doc.context.obj({ Type: "ExtGState", BM: "Multiply" }));
+    const name = page.node.newExtGState("Mul", this.multiply);
+    const ops: PDFOperator[] = [pushGraphicsState(), setGraphicsState(name), setFillingColor(color(item.color))];
+    for (const { x, y, w, h } of markBars(item)) ops.push(moveTo(x, y), lineTo(x + w, y), lineTo(x + w, y + h), lineTo(x, y + h), closePath());
+    ops.push(fill(), popGraphicsState());
+    return ops;
+  }
+
+  /** A sticky note becomes a standard PDF comment, which any reader can open. */
+  private addNote(page: PDFPage, note: NoteItem, toPdf: Matrix) {
+    const corners = [
+      apply(toPdf, note.x, note.y),
+      apply(toPdf, note.x + NOTE_SIZE, note.y),
+      apply(toPdf, note.x, note.y + NOTE_SIZE),
+      apply(toPdf, note.x + NOTE_SIZE, note.y + NOTE_SIZE),
+    ];
+    const xs = corners.map((c) => c[0]);
+    const ys = corners.map((c) => c[1]);
+    const n = parseInt(note.color.slice(1), 16);
+    const annotation = this.doc.context.obj({
+      Type: "Annot",
+      Subtype: "Text",
+      Rect: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
+      Contents: PDFHexString.fromText(note.text),
+      Name: "Comment",
+      C: [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255],
+      // Print, don't zoom, don't rotate: the usual flags for a comment icon.
+      F: 28,
+      Open: false,
+      M: PDFString.of(pdfDate()),
+    });
+    page.node.addAnnot(this.doc.context.register(annotation));
+  }
+
   async write(page: PDFPage, index: number, items: Item[]) {
     const ops: PDFOperator[] = [];
+    const notes: NoteItem[] = [];
     // Everything that hides original text goes down first, so one replacement's
     // cover can't paint over the new text of its neighbour.
     for (const item of items) {
@@ -247,11 +300,14 @@ class Writer {
       if (item.type === "text") {
         if (item.text) ops.push(...(await this.textOps(page, item)));
       } else if (item.type === "image") ops.push(...(await this.imageOps(page, item)));
+      else if (isMarkup(item)) ops.push(...this.markupOps(page, item));
+      else if (item.type === "note") notes.push(item);
       else for (const p of paints(item)) ops.push(...paintOps(p));
     }
-    if (!ops.length) return;
+    if (!ops.length && !notes.length) return;
     const toPdf = invert(await this.env.pageTransform(index));
-    page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...toPdf), ...ops, popGraphicsState());
+    if (ops.length) page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...toPdf), ...ops, popGraphicsState());
+    for (const note of notes) if (note.text.trim()) this.addNote(page, note, toPdf);
   }
 }
 

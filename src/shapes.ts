@@ -1,7 +1,7 @@
 // One geometry description per item, used for both the on-screen SVG and the
 // saved PDF so the two can't drift apart.
 
-import type { Item } from "./model";
+import type { Box, Item, MarkupItem } from "./model";
 
 export type PathCmd =
   | ["M", number, number]
@@ -193,6 +193,36 @@ export function paints(item: Item): Paint[] {
     default:
       return [];
   }
+}
+
+/** The coloured boxes a highlight, underline or strike-through is drawn as. */
+export function markBars(item: MarkupItem): Box[] {
+  if (item.type === "highlight") return item.rects;
+  return item.rects.map((r) => {
+    const thickness = Math.max(0.75, r.h * 0.075);
+    const at = item.type === "underline" ? r.y + r.h * 0.92 : r.y + r.h * 0.55;
+    return { x: r.x, y: at - thickness / 2, w: r.w, h: thickness };
+  });
+}
+
+/** Joins boxes on the same line that touch, so each line of marked text is one box. */
+export function mergeLineBoxes(boxes: Box[]): Box[] {
+  const sorted = [...boxes].sort((a, b) => a.y + a.h / 2 - (b.y + b.h / 2) || a.x - b.x);
+  const out: Box[] = [];
+  for (const box of sorted) {
+    const last = out[out.length - 1];
+    const sameLine = last && Math.abs(last.y + last.h / 2 - (box.y + box.h / 2)) < Math.min(last.h, box.h) * 0.5;
+    if (sameLine && box.x <= last.x + last.w + 2) {
+      const right = Math.max(last.x + last.w, box.x + box.w);
+      const top = Math.min(last.y, box.y);
+      const bottom = Math.max(last.y + last.h, box.y + box.h);
+      last.x = Math.min(last.x, box.x);
+      last.w = right - last.x;
+      last.y = top;
+      last.h = bottom - top;
+    } else out.push({ ...box });
+  }
+  return out;
 }
 
 export function svgPath(cmds: PathCmd[]): string {

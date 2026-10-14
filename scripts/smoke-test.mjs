@@ -549,6 +549,63 @@ await session(sample("search.pdf"), 9343, async (app) => {
   check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
 });
 
+// ---- highlight, underline, strike-through, comments ------------------------
+
+const marked = join(tmpdir(), "duckument-smoke-marked.pdf");
+await session(sample("search.pdf"), 9344, async (app) => {
+  await app.debugHandle();
+  await app.waitFor(`document.querySelectorAll(".page")[0].querySelector(".textLayer span")`, 8000);
+  const spanOf = (prefix) =>
+    app.evaluate(`(() => { const span = [...document.querySelectorAll(".page")[0].querySelectorAll(".textLayer span")].find((s) => s.textContent.startsWith(${JSON.stringify(prefix)})); const r = span.getBoundingClientRect(); return [r.left, r.top + r.height / 2, r.width]; })()`);
+  const markText = async (prefix, share = 0.6) => {
+    const [x, y, w] = await spanOf(prefix);
+    await app.drag(x + 1, y, x + w * share, y);
+  };
+
+  await app.tool("Highlight");
+  await markText("Lorem");
+  const items = () => app.evaluate("window.__fpe.store.items.map((i) => ({ type: i.type, text: i.text, rects: i.rects?.length, color: i.color }))");
+  let list = await items();
+  check("selecting text in Highlight mode highlights it", list.length === 1 && list[0].type === "highlight" && list[0].text.startsWith("Lorem ipsum"), JSON.stringify(list));
+  check("the highlight covers one line", list[0]?.rects === 1);
+  await app.clickOn(".props .labelled-small", 1); // Underline
+  await markText("Page 1");
+  await app.clickOn(".props .labelled-small", 2); // Strike through
+  const [x, y, w] = await spanOf("Lorem");
+  await app.drag(x + w * 0.7, y, x + w * 0.98, y);
+  list = await items();
+  check("underline and strike-through work the same way", list.map((i) => i.type).join() === "highlight,underline,strike", JSON.stringify(list));
+
+  await app.tool("Add a comment");
+  const [px, py, pw] = await app.center(".page", 0);
+  await app.click(px + pw * 0.3, py);
+  await app.type("Husk å signere her");
+  check("a comment opens for typing where you click", (await app.evaluate("window.__fpe.store.items.at(-1).text")) === "Husk å signere her");
+  await app.shoot("highlights-and-comment");
+  await app.tool("Select");
+  check("an empty click elsewhere closes the comment, keeping it", (await app.evaluate("window.__fpe.store.items.filter((i) => i.type === 'note').length")) === 1);
+  await app.key("z", 90, CTRL);
+  check("undo removes the comment", (await app.evaluate("window.__fpe.store.items.filter((i) => i.type === 'note').length")) === 0);
+  await app.key("y", 89, CTRL);
+
+  await app.evaluate(`(async () => {
+    const bytes = await window.__fpe.build();
+    await window.__TAURI_INTERNALS__.invoke("write_file", bytes, { headers: { "x-path": encodeURIComponent(${JSON.stringify(marked)}) } });
+  })()`);
+  check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
+});
+
+{
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(readFileSync(marked)), verbosity: 0 }).promise;
+  const notes = (await (await pdf.getPage(1)).getAnnotations()).filter((a) => a.subtype === "Text");
+  check("the saved file has the comment, readable by any PDF reader", notes.length === 1 && notes[0].contentsObj?.str === "Husk å signere her");
+}
+await session(marked, 9345, async (app) => {
+  check("comments in an opened file are shown", await app.waitFor(`!!document.querySelector(".annotationLayer .textAnnotation")`, 8000));
+  await app.shoot("saved-highlights-and-comment");
+});
+rmSync(marked, { force: true });
+
 // ---- a flat form: blanks, editing text, and the saved file ------------------
 
 const saved = join(tmpdir(), "freepdfeditor-smoke-saved.pdf");

@@ -4,6 +4,8 @@ export type Tool =
   | "select"
   | "text"
   | "edit"
+  | "markup"
+  | "note"
   | "check"
   | "cross"
   | "rect"

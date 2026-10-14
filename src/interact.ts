@@ -6,6 +6,7 @@ import { identifyFont } from "./fontmatch";
 import { FONTS, isInstalled, type FontDef } from "./fonts";
 import {
   LINE_HEIGHT,
+  NOTE_SIZE,
   isLine,
   newId,
   translate,
@@ -19,6 +20,7 @@ import { isDesktop } from "./platform";
 import type { Settings } from "./settings";
 import type { Store, Tool } from "./store";
 import { baseline, cssFont } from "./textmetrics";
+import { mergeLineBoxes } from "./shapes";
 import { runAt, type TextRun } from "./textruns";
 import type { PageView, Viewer } from "./viewer";
 
@@ -37,6 +39,8 @@ const TOOL_KEYS: Record<string, Tool> = {
   v: "select",
   t: "text",
   e: "edit",
+  h: "markup",
+  n: "note",
   r: "rect",
   o: "ellipse",
   l: "line",
@@ -167,9 +171,13 @@ export class Interaction {
     // real inputs (form fields, the text editor) keep their normal behaviour.
     root.addEventListener("mousedown", (event) => {
       const target = event.target as Element;
-      // In Select mode the document's own text can be selected.
-      if (this.tool === "select" && target.closest?.(".textLayer")) return;
+      // In Select and Highlight mode the document's own text can be selected.
+      if ((this.tool === "select" || this.tool === "markup") && target.closest?.(".textLayer")) return;
       if (!isTyping(event.target) && this.viewer.pageFromElement(target)) event.preventDefault();
+    });
+    // Letting go of a text selection in Highlight mode marks it.
+    root.addEventListener("mouseup", () => {
+      if (this.tool === "markup") this.markSelection();
     });
     window.addEventListener("keydown", this.keyListener);
     window.addEventListener("paste", this.pasteListener);
@@ -298,6 +306,21 @@ export class Interaction {
         if (target) this.overlay.startEdit(target.id, caretIndex(target, p.x));
         else if (run) this.editRun(view, run, p.x);
         else this.store.select(null);
+        return;
+      }
+
+      case "markup":
+        // Marking happens when the selected text is let go (see markSelection).
+        this.store.select(null);
+        return;
+
+      case "note": {
+        if (hit?.type === "note") {
+          this.overlay.editNote(hit.id);
+          return;
+        }
+        this.store.add({ ...base, type: "note", x: p.x - NOTE_SIZE / 2, y: p.y - NOTE_SIZE / 2, text: "", color: this.settings.noteColor });
+        this.overlay.editNote(base.id);
         return;
       }
 
@@ -566,7 +589,42 @@ export class Interaction {
     this.store.commit();
   }
 
+  /** Turns the text selected on a page into a highlight, underline or strike-through. */
+  private markSelection() {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !selection.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    const node = range.startContainer;
+    const start = node instanceof Element ? node : node.parentElement;
+    const view = this.viewer.pageFromElement(start);
+    if (!view || !start?.closest(".textLayer")) return;
+
+    // A selection running on to the next page only marks the page it started on.
+    const page = view.el.getBoundingClientRect();
+    const boxes: Box[] = [];
+    for (const r of range.getClientRects()) {
+      if (r.width < 1 || r.height < 1) continue;
+      const cx = (r.left + r.right) / 2;
+      const cy = (r.top + r.bottom) / 2;
+      if (cx < page.left || cx > page.right || cy < page.top || cy > page.bottom) continue;
+      const a = this.viewer.pointOn(view, r.left, r.top);
+      const b = this.viewer.pointOn(view, r.right, r.bottom);
+      boxes.push({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) });
+    }
+    const text = range.toString();
+    selection.removeAllRanges();
+    if (!boxes.length) return;
+    const kind = this.settings.markKind;
+    this.store.add({ id: newId(), page: view.index, type: kind, rects: mergeLineBoxes(boxes), color: this.settings.markColors[kind], text });
+    this.store.commit();
+  }
+
   private onDoubleClick(event: MouseEvent) {
+    const noteId = (event.target as Element).closest<HTMLElement>(".item.note")?.dataset.id;
+    if (noteId) {
+      this.overlay.editNote(noteId);
+      return;
+    }
     const id = (event.target as Element).closest<HTMLElement>(".item.text")?.dataset.id;
     if (id && !this.overlay.editingId) this.overlay.startEdit(id, "all");
   }

@@ -5,7 +5,7 @@ import { h } from "./dom";
 import { FONTS, isInstalled } from "./fonts";
 import { icon, type IconName } from "./icons";
 import type { Interaction } from "./interact";
-import { isLine, type Item } from "./model";
+import { isLine, type Item, type MarkKind } from "./model";
 import { isDesktop } from "./platform";
 import { saveSettings, type Settings } from "./settings";
 import { createSignature, loadSignatures, placedSize, storeSignatures, type Signature } from "./signature";
@@ -25,6 +25,8 @@ const TOOLS: { tool: Tool; icon: IconName; label: string; key: string; text?: st
   { tool: "select", icon: "select", label: "Select and move", key: "V" },
   { tool: "text", icon: "text", label: "Add text, or fill in a blank", key: "T", text: "Text" },
   { tool: "edit", icon: "edit", label: "Edit text that is in the document", key: "E", text: "Edit text" },
+  { tool: "markup", icon: "highlighter", label: "Highlight, underline or strike through text", key: "H", text: "Highlight" },
+  { tool: "note", icon: "note", label: "Add a comment", key: "N" },
   { tool: "check", icon: "check", label: "Check mark", key: "C" },
   { tool: "cross", icon: "cross", label: "Cross", key: "X" },
   { tool: "rect", icon: "rect", label: "Rectangle", key: "R" },
@@ -36,6 +38,8 @@ const TOOLS: { tool: Tool; icon: IconName; label: string; key: string; text?: st
 ];
 
 const COLORS = ["#000000", "#1a3fb0", "#d92626", "#178a3e", "#f08c00", "#ffffff"];
+const HIGHLIGHTS = ["#ffe14d", "#a6e36c", "#8ecdf5", "#f7a1c4", "#ffb366"];
+const NOTE_COLORS = ["#ffd43b", "#ff922b", "#8ce99a", "#74c0fc", "#faa2c1"];
 const WIDTHS = [0.5, 1, 1.5, 2, 3, 4, 6, 8];
 
 const HINTS: Partial<Record<Tool, string>> = {
@@ -46,11 +50,13 @@ const HINTS: Partial<Record<Tool, string>> = {
 };
 
 /** Which set of options applies to an item or tool. */
-type Kind = "text" | "shape" | "stroke" | "none";
+type Kind = "text" | "shape" | "stroke" | "markup" | "note" | "none";
 
 function kindOf(target: Item | Tool): Kind {
   const type = typeof target === "string" ? target : target.type;
   if (type === "text") return "text";
+  if (type === "markup" || type === "highlight" || type === "underline" || type === "strike") return "markup";
+  if (type === "note") return "note";
   if (type === "rect" || type === "ellipse") {
     // White-out is a rectangle without an outline; it has nothing to configure.
     return typeof target !== "string" && target.type === "rect" && !target.stroke && target.fill === "#ffffff"
@@ -120,8 +126,8 @@ export class Toolbar {
     this.zoomLabel = h("button", { type: "button", class: "tb zoom", title: "Fit to window width (Ctrl+0)", onclick: () => this.viewer.zoomToFitWidth() });
     this.pageLabel = h("span", { class: "page-label" });
 
-    // select, text, edit text | sign | check, cross | shapes... | picture
-    const [select, text, editText, check, cross, ...shapes] = tools;
+    // select, text, edit text, highlight, comment | sign | check, cross | shapes... | picture
+    const [select, text, editText, markup, note, check, cross, ...shapes] = tools;
     this.docButtons = [pagesButton, this.saveButton, ...tools, this.signButton, imageButton, zoomOut, zoomIn, this.zoomLabel];
 
     const main = h(
@@ -129,7 +135,7 @@ export class Toolbar {
       { class: "toolbar" },
       h("div", { class: "group" }, pagesButton, openButton, this.saveButton),
       h("div", { class: "group" }, this.undoButton, this.redoButton),
-      h("div", { class: "group" }, select, text, editText, h("div", { class: "menu-anchor" }, this.signButton, this.signMenu), check, cross),
+      h("div", { class: "group" }, select, text, editText, markup, note, h("div", { class: "menu-anchor" }, this.signButton, this.signMenu), check, cross),
       h("div", { class: "group" }, ...shapes, imageButton),
       h("div", { class: "spacer" }),
       h("div", { class: "group" }, this.pageLabel, zoomOut, this.zoomLabel, zoomIn),
@@ -255,6 +261,8 @@ export class Toolbar {
     if (kind === "text") children.push(...this.textProps());
     else if (kind === "shape") children.push(...this.shapeProps());
     else if (kind === "stroke") children.push(...this.strokeProps());
+    else if (kind === "markup") children.push(...this.markupProps());
+    else if (kind === "note") children.push(...this.noteProps());
     else if (open && !selected) children.push(h("span", { class: "hint" }, HINTS[this.interaction.tool] ?? ""));
     else if (!open) children.push(h("span", { class: "hint" }, "Open a PDF to sign it, fill it in or mark it up."));
 
@@ -287,11 +295,11 @@ export class Toolbar {
     }
   }
 
-  private swatches(label: string, allowNone: boolean, get: () => string | null, set: (value: string | null) => void) {
+  private swatches(label: string, allowNone: boolean, get: () => string | null, set: (value: string | null) => void, palette: string[] = COLORS) {
     const custom = h("input", { type: "color", class: "swatch custom", title: "Other colour" });
     custom.addEventListener("input", () => set(custom.value));
     const buttons = new Map<string | null, HTMLElement>();
-    const options: (string | null)[] = allowNone ? [null, ...COLORS] : COLORS;
+    const options: (string | null)[] = allowNone ? [null, ...palette] : palette;
     for (const value of options) {
       buttons.set(
         value,
@@ -368,6 +376,67 @@ export class Toolbar {
       h("div", { class: "field" }, bold, italic),
       color.el,
     ];
+  }
+
+  private markupProps(): HTMLElement[] {
+    const item = () => {
+      const selected = this.store.selected;
+      return selected && (selected.type === "highlight" || selected.type === "underline" || selected.type === "strike") ? selected : null;
+    };
+    const kinds: [MarkKind, string][] = [
+      ["highlight", "Highlight"],
+      ["underline", "Underline"],
+      ["strike", "Strike through"],
+    ];
+    const buttons = kinds.map(([kind, label]) =>
+      h(
+        "button",
+        {
+          type: "button",
+          class: "tb small labelled-small",
+          onclick: () => {
+            this.settings.markKind = kind;
+            const selected = item();
+            if (selected) {
+              this.store.replace({ ...selected, type: kind, color: this.settings.markColors[kind] });
+              this.store.commit();
+            }
+            saveSettings(this.settings);
+            this.refreshProps?.();
+          },
+        },
+        label,
+      ),
+    );
+    const kindNow = () => item()?.type ?? this.settings.markKind;
+    const color = this.swatches(
+      "Colour",
+      false,
+      () => item()?.color ?? this.settings.markColors[kindNow()],
+      (value) => {
+        this.settings.markColors[kindNow()] = value!;
+        this.apply({ color: value }, {});
+      },
+      kindNow() === "highlight" ? HIGHLIGHTS : COLORS,
+    );
+    this.refreshProps = () => {
+      buttons.forEach((b, i) => b.classList.toggle("active", kinds[i][0] === kindNow()));
+      color.refresh();
+    };
+    return [h("div", { class: "field" }, ...buttons), color.el, h("span", { class: "hint" }, item() ? "" : "Select text to mark it.")];
+  }
+
+  private noteProps(): HTMLElement[] {
+    const item = () => (this.store.selected?.type === "note" ? this.store.selected : null);
+    const color = this.swatches(
+      "Colour",
+      false,
+      () => item()?.color ?? this.settings.noteColor,
+      (value) => this.apply({ color: value }, { noteColor: value! }),
+      NOTE_COLORS,
+    );
+    this.refreshProps = () => color.refresh();
+    return [color.el, h("span", { class: "hint" }, item() ? "" : "Click on the page to leave a comment there.")];
   }
 
   private strokeProps(): HTMLElement[] {
