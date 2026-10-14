@@ -185,10 +185,30 @@ async function search() {
   writeFileSync(join(out, "search.pdf"), await doc.save());
 }
 
+// Dotted, dashed and shaded fields.
+async function dotted() {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([595, 842]);
+  page.drawText("Name:", { x: 50, y: 700, size: 11, font });
+  page.drawText(".".repeat(70), { x: 90, y: 700, size: 11, font });
+  page.drawText("Address:", { x: 50, y: 660, size: 11, font });
+  page.drawLine({ start: { x: 105, y: 658 }, end: { x: 420, y: 658 }, thickness: 0.6, dashArray: [4, 3] });
+  page.drawText("Email:", { x: 50, y: 610, size: 11, font });
+  page.drawRectangle({ x: 95, y: 600, width: 300, height: 22, color: rgb(0.9, 0.93, 0.98) });
+  page.drawText("Phone:", { x: 50, y: 570, size: 11, font });
+  page.drawRectangle({ x: 95, y: 560, width: 200, height: 22, color: rgb(0.92, 0.92, 0.92) });
+  // A shaded panel with text in it is not a field.
+  page.drawRectangle({ x: 50, y: 400, width: 495, height: 100, color: rgb(0.94, 0.94, 0.94) });
+  page.drawText("Please read the terms before signing this form.", { x: 60, y: 450, size: 11, font });
+  writeFileSync(join(out, "dotted.pdf"), await doc.save());
+}
+
 await form();
 await flat();
 await long();
 await search();
+await dotted();
 await letter();
 await fonts();
 console.log(`Wrote samples to ${out}`);

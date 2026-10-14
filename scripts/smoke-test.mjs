@@ -606,6 +606,17 @@ await session(marked, 9345, async (app) => {
 });
 rmSync(marked, { force: true });
 
+// ---- dotted, dashed and shaded fields ---------------------------------------
+
+await session(sample("dotted.pdf"), 9346, async (app) => {
+  await app.debugHandle();
+  await app.tool("Add text");
+  await app.waitFor("window.__fpe.viewer.pages[0].blanks !== null", 8000);
+  const found = await app.evaluate("window.__fpe.viewer.pages[0].blanks.map((b) => b.kind).join()");
+  check("finds dotted, dashed and shaded fields, and not the shaded panel with text", found === "line,line,box,box", found);
+  await app.shoot("dotted-dashed-shaded");
+});
+
 // ---- a flat form: blanks, editing text, and the saved file ------------------
 
 const saved = join(tmpdir(), "freepdfeditor-smoke-saved.pdf");

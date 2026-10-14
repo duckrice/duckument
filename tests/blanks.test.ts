@@ -96,10 +96,60 @@ describe("detectBlanks", () => {
     expect(blanks[1].h).toBeCloseTo(59, 0);
   });
 
-  it("skips filled shapes and light grey shading", () => {
+  it("skips filled shapes", () => {
     const page = new Page(400, 200);
     page.fill(40, 60, 200, 30); // a solid bar
-    page.fill(40, 120, 200, 30, 235); // pale shading
+    expect(page.blanks()).toEqual([]);
+  });
+
+  it("finds dotted and dashed lines, with or without a label", () => {
+    const page = new Page(400, 300);
+    page.text(40, 60, 40);
+    for (let x = 90; x < 300; x += 3) page.fill(x, 60, 1.2, 1.2); // Name: ...........
+    for (let x = 90; x < 300; x += 7) page.fill(x, 120, 4, 0.7); // - - - - -
+    const blanks = page.blanks();
+    expect(blanks.map((b) => b.kind)).toEqual(["line", "line"]);
+    expect(blanks[0].x).toBeCloseTo(90, 0);
+    expect(blanks[0].x + blanks[0].w).toBeCloseTo(299, 0);
+    expect(blanks[0].y + blanks[0].h).toBeCloseTo(60, 0);
+    expect(blanks[1].y + blanks[1].h).toBeCloseTo(120, 0);
+  });
+
+  it("does not mistake lines of small letters for dots", () => {
+    // Letter-like shapes: tops of round letters with strokes going down.
+    const page = new Page(400, 200);
+    for (let x = 40; x < 300; x += 5) page.fill(x, 80, 3.5, 0.7).fill(x, 80, 0.7, 5).fill(x + 2.8, 80, 0.7, 5);
+    expect(page.blanks()).toEqual([]);
+  });
+
+  it("finds shaded fields without an outline, but not shading with something in it", () => {
+    const page = new Page(400, 300);
+    page.fill(100, 50, 200, 20, 235); // empty grey field
+    page.fill(100, 100, 200, 60, 238).text(110, 130, 80); // shaded panel holding text
+    const blanks = page.blanks();
+    expect(blanks).toHaveLength(1);
+    expect(blanks[0]).toMatchObject({ kind: "box" });
+    expect(blanks[0].x).toBeCloseTo(100, 0);
+    expect(blanks[0].w).toBeCloseTo(200, 0);
+    expect(blanks[0].h).toBeCloseTo(20, 0);
+  });
+
+  it("does not take a photo for a shaded field", () => {
+    const page = new Page(400, 300);
+    const { data, width } = page.image;
+    // Noisy pale pixels, like a light photograph.
+    for (let y = 100; y < 200; y++) {
+      for (let x = 100; x < 300; x++) {
+        const i = (y * 2 * width + x * 2) * 4;
+        const v = 205 + ((x * 7 + y * 13) % 37);
+        for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+          const j = i + (dy * width + dx) * 4;
+          data[j] = v;
+          data[j + 1] = v - 10;
+          data[j + 2] = v - 20;
+        }
+      }
+    }
     expect(page.blanks()).toEqual([]);
   });
 
