@@ -35,6 +35,8 @@ import {
   showText,
   stroke,
   setGraphicsState,
+  beginMarkedContent,
+  endMarkedContent,
   PDFHexString,
   PDFRef,
   PDFString,
@@ -42,6 +44,7 @@ import {
 import { fontDef, fontFile, type FontClass } from "./fonts";
 import { LINE_HEIGHT, NOTE_SIZE, isMarkup, type ImageItem, type Item, type MarkupItem, type NoteItem, type PageRef, type TextItem } from "./model";
 import { removeTextFromPage } from "./contentedit";
+import { MARK, NOTE_FLAG, attach, type SavedPage } from "./editdata";
 import { layoutText } from "./paragraphs";
 import { markBars, paints, type Paint } from "./shapes";
 
@@ -66,6 +69,11 @@ export interface ExportEnv {
   measure?(item: TextItem, text: string): number;
   /** Told how many edited pieces of text could only be painted over, not removed. */
   onCoverOnly?(count: number): void;
+  /**
+   * Encrypts the edits to store in the file (see editdata.ts), given what the
+   * pages were like; without it the edits are only drawn.
+   */
+  seal?(pages: Omit<SavedPage, "extra">[]): Promise<{ blob: Uint8Array; keyId: string }>;
 }
 
 export class EncryptedPdfError extends Error {
@@ -286,6 +294,8 @@ class Writer {
       F: 28,
       Open: false,
       M: PDFString.of(pdfDate()),
+      // Lets Duckument tell its own comments from others when the file is reopened.
+      [NOTE_FLAG]: true,
     });
     page.node.addAnnot(this.doc.context.register(annotation));
   }
@@ -324,7 +334,10 @@ class Writer {
     }
     if (!ops.length && !notes.length) return;
     const toPdf = invert(await this.env.pageTransform(index));
-    if (ops.length) page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...toPdf), ...ops, popGraphicsState());
+    // Tagged, so Duckument can take its own drawing back off when it reopens the file.
+    if (ops.length) {
+      page.pushOperators(beginMarkedContent(MARK), pushGraphicsState(), concatTransformationMatrix(...toPdf), ...ops, popGraphicsState(), endMarkedContent());
+    }
     for (const note of notes) if (note.text.trim()) this.addNote(page, note, toPdf);
   }
 }
@@ -364,7 +377,7 @@ export async function assemblePdf(sources: SourceBytes, primary: string, pages: 
   const doc = await PDFDocument.load(base, { ignoreEncryption: true, updateMetadata: false });
   const originals = doc.getPages();
   const unchanged = pages.length === originals.length && pages.every((page, i) => page.source === primary && page.index === i && !page.blank);
-  if (unchanged && !items.length && pages.every((page) => page.rotation === 0)) return base;
+  if (unchanged && !items.length && pages.every((page) => page.rotation === 0) && !env.seal) return base;
   if (doc.isEncrypted) throw new EncryptedPdfError();
 
   let finalPages: PDFPage[];
@@ -408,6 +421,8 @@ export async function assemblePdf(sources: SourceBytes, primary: string, pages: 
     for (const page of finalPages) doc.addPage(page);
   }
 
+  // What each page was like before the user's turning, for restoring the edits later.
+  const saved = finalPages.map((page) => ({ rotate: page.getRotation().angle, width: page.getMediaBox().width, height: page.getMediaBox().height }));
   pages.forEach((page, i) => {
     if (page.rotation) finalPages[i].setRotation(degrees((finalPages[i].getRotation().angle + page.rotation) % 360));
   });
@@ -449,5 +464,9 @@ export async function assemblePdf(sources: SourceBytes, primary: string, pages: 
     await writer.write(finalPages[index], index, list, removed);
   }
   if (coverOnly) env.onCoverOnly?.(coverOnly);
+  if (env.seal) {
+    const { blob, keyId } = await env.seal(saved);
+    attach(doc, blob, keyId);
+  }
   return doc.save();
 }

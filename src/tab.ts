@@ -2,6 +2,7 @@
 // and saving it. Each tab in the window is one of these.
 
 import { h } from "./dom";
+import { restore, seal, storableItems } from "./editdata";
 import { EncryptedPdfError, assemblePdf, type ExportEnv, type SourceBytes } from "./export";
 import { Interaction, imageFromBlob } from "./interact";
 import type { PageRef } from "./model";
@@ -109,15 +110,18 @@ export class DocTab {
 
   /** Loads a PDF into this tab. Throws if it can't be opened (OpenCancelled if the user gave up on a password). */
   async open(file: OpenedFile) {
-    const pdf = await this.viewer.load(file.bytes);
-    const pages = pagesOf(PRIMARY, pdf.numPages);
+    // A file this Duckument saved comes back with its edits still editable.
+    const restored = await restore(file.bytes);
+    const bytes = restored?.bytes ?? file.bytes;
+    const pdf = await this.viewer.load(bytes);
+    const pages = pagesOf(PRIMARY, pdf.numPages).map((page, i) => ({ ...page, rotation: restored?.rotations[i] ?? 0 }));
     this.shownPages = pages;
     await this.viewer.show(pdf, pages);
-    this.sourceBytes = new Map([[PRIMARY, file.bytes]]);
+    this.sourceBytes = new Map([[PRIMARY, bytes]]);
     this.overlay.clear();
-    this.store.reset(pages);
+    this.store.reset(pages, restored?.items ?? []);
     this.interaction.setTool("select");
-    this.file = { name: file.name, bytes: file.bytes, path: file.path, savePath: null };
+    this.file = { name: file.name, bytes, path: file.path, savePath: null };
     this.formsDirty = false;
     this.blanksAnnounced = false;
     this.hooks.changed(this);
@@ -217,8 +221,10 @@ export class DocTab {
     return out;
   }
 
-  private exportEnv(): ExportEnv {
+  /** How to write the given pages and items, keeping a copy of the edits only this computer can read. */
+  private exportEnv(pages: PageRef[] = this.store.pages, items = this.store.items): ExportEnv {
     return {
+      seal: (saved) => seal({ v: 1, pages: saved.map((page, i) => ({ ...page, extra: pages[i]?.rotation ?? 0 })), items: storableItems(items) }),
       pageTransform: (index) => this.viewer.pageTransform(index),
       baseline,
       rasterizeText,
@@ -237,8 +243,9 @@ export class DocTab {
   async buildPages(ids: string[]): Promise<Uint8Array> {
     const chosen = this.store.pages.filter((page) => ids.includes(page.id));
     const viewIndex = chosen.map((page) => this.store.pages.indexOf(page));
-    return assemblePdf(await this.sourcesWithForms(), PRIMARY, chosen, itemsFor(this.state, ids), {
-      ...this.exportEnv(),
+    const items = itemsFor(this.state, ids);
+    return assemblePdf(await this.sourcesWithForms(), PRIMARY, chosen, items, {
+      ...this.exportEnv(chosen, items),
       pageTransform: (index) => this.viewer.pageTransform(viewIndex[index]),
     });
   }

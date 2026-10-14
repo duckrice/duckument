@@ -37,10 +37,10 @@ function check(name, ok, detail = "") {
 }
 
 /** The test's environment for a copy of the app. */
-const appEnv = (port, singleInstance) => ({
+const appEnv = (port, singleInstance, profileDir = profile) => ({
   ...process.env,
   WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
-  WEBVIEW2_USER_DATA_FOLDER: profile,
+  WEBVIEW2_USER_DATA_FOLDER: profileDir,
   // Normally each test copy stands alone, so it can't hand files to a Duckument
   // that is open for real use.
   ...(singleInstance ? {} : { DUCKUMENT_MULTI_INSTANCE: "1" }),
@@ -62,9 +62,9 @@ const requestClose = (pid) =>
   ]);
 
 /** Starts the app with `files` open and hands `run` helpers for driving it. */
-async function session(files, port, run, { singleInstance = false } = {}) {
+async function session(files, port, run, { singleInstance = false, profileDir = profile } = {}) {
   files = [files].flat().filter(Boolean);
-  const child = spawn(exe, files, { env: appEnv(port, singleInstance), stdio: "ignore" });
+  const child = spawn(exe, files, { env: appEnv(port, singleInstance, profileDir), stdio: "ignore" });
   let target;
   for (let i = 0; i < 60 && !target; i++) {
     await sleep(500);
@@ -808,14 +808,52 @@ await session(sample("flat.pdf"), 9337, async (app) => {
   check("embeds only the letters used, not whole fonts", grew < 80_000, `${grew} bytes added`);
 }
 
+// ---- edits stay editable, for this Duckument only ---------------------------------
+
+const resaved = join(tmpdir(), "duckument-smoke-resaved.pdf");
 await session(saved, 9335, async (app) => {
+  await app.debugHandle();
   check("the saved file opens again", (await app.evaluate("document.title")).startsWith("freepdfeditor-smoke-saved.pdf"));
+  const restored = await app.evaluate("window.__fpe.store.items.map((i) => i.type === 'text' ? i.text : i.type)");
+  check(
+    "this Duckument gets the edits back as editable items",
+    ["Kari", "Nordmann", "Ola Nordmann", "Brother", "Riverside Tennis Club, founded 1992 in Bergen", "Søknad om medlemskap"].every((t) => restored.includes(t)),
+    JSON.stringify(restored),
+  );
+  check("and the document isn't marked as changed", !(await app.evaluate("window.__fpe.tabs[0].dirty")));
+  check("the removed original text was not kept", !(await app.evaluate("JSON.stringify(window.__fpe.store.items)")).includes("1987"));
   await app.shoot("saved-file-reopened-top");
   await app.scrollTo(620);
   await sleep(1200);
   await app.shoot("saved-file-reopened-lower");
+  // Move one item and save again.
+  await app.evaluate(`(() => { const s = window.__fpe.store; const item = s.items.find((i) => i.text === "Kari"); s.replace({ ...item, x: item.x + 40 }); s.commit(); })()`);
+  await app.evaluate(`(async () => {
+    const bytes = await window.__fpe.build();
+    await window.__TAURI_INTERNALS__.invoke("write_file", bytes, { headers: { "x-path": encodeURIComponent(${JSON.stringify(resaved)}) } });
+  })()`);
   check("no errors opening it", app.errors.length === 0, app.errors.join("; "));
 });
+{
+  const page = await (await pdfjs.getDocument({ data: new Uint8Array(readFileSync(resaved)), verbosity: 0 }).promise).getPage(1);
+  const runs = (await page.getTextContent()).items.filter((i) => i.str?.trim());
+  const count = (text) => runs.filter((i) => i.str === text).length;
+  check("saving again doesn't leave the old drawing behind", count("Kari") === 1 && count("Søknad om medlemskap") === 1 && count("Brother") === 1);
+}
+
+// Another Duckument (another computer's key) sees only the finished pages.
+const stranger = mkdtempSync(join(tmpdir(), "duckument-smoke-other-"));
+await session(resaved, 9349, async (app) => {
+  await app.debugHandle();
+  check("another Duckument can't see or change the edits", (await app.evaluate("window.__fpe.store.items.length")) === 0);
+  await app.waitFor(`document.querySelectorAll(".page")[0].querySelector(".textLayer span")`, 8000);
+  const words = await app.evaluate(`[...document.querySelectorAll(".page")[0].querySelectorAll(".textLayer span")].map((s) => s.textContent).join(" ")`);
+  check("it shows the finished document", words.includes("Kari") && words.includes("Søknad om medlemskap"), words.slice(0, 200));
+  await app.shoot("seen-by-another-duckument");
+}, { profileDir: stranger });
+rmSync(stranger, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
+rmSync(resaved, { force: true });
+
 rmSync(saved, { force: true });
 rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
 

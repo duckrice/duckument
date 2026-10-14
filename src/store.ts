@@ -160,9 +160,9 @@ export class Store {
     this.emit();
   }
 
-  /** Starts a new document with these pages and nothing added. */
-  reset(pages: PageRef[] = []) {
-    this.items = [];
+  /** Starts a new document with these pages and items, as saved. */
+  reset(pages: PageRef[] = [], items: Item[] = []) {
+    this.items = items;
     this.pages = pages;
     this.committed = this.saved = this.current;
     this.undoStack = [];
