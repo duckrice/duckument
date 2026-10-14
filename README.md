@@ -13,6 +13,7 @@ A small, free Windows app for the everyday PDF jobs: signing a document, filling
 - **Shapes**: rectangles, ellipses, lines, arrows, freehand drawing, and white-out to cover something up.
 - **Pictures**: insert an image, or paste one from the clipboard.
 - Undo/redo, copy/paste, and smooth zooming (Ctrl + mouse wheel).
+- Updates itself: when a new version is out, Duckument offers to install it.
 
 The signature is a picture of your signature placed on the page. It is not a certificate-based digital signature.
 
@@ -58,7 +59,13 @@ npm run tauri dev     # run the desktop app with live reload
 npm test              # tests for the PDF writing code
 npm run tauri build   # build the installer into src-tauri/target/release/bundle/nsis
 npm run smoke         # drive the built app through a quick end-to-end check
+npm run test:update   # install a real update end to end (about 15 minutes)
 ```
+
+Updates are signed. Building the installer needs the private update-signing key:
+set `TAURI_SIGNING_PRIVATE_KEY` to the contents of `~/.tauri/duckument.key` (and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to an empty string). For local testing,
+`npm run tauri build -- --no-bundle` builds just the app and needs no key.
 
 `npm run dev` runs just the web part in a browser. `npm run samples` generates test PDFs; open one with `http://localhost:1420/?src=/samples/form.pdf`.
 
@@ -68,4 +75,6 @@ The app is built with [Tauri](https://tauri.app), [PDF.js](https://mozilla.githu
 
 1. Set the new version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`.
 2. Commit and push, then tag and push the tag: `git tag v1.0.1 && git push origin v1.0.1`.
-3. GitHub Actions builds the installer and publishes it as a new release. The download link above always points at the newest one.
+3. GitHub Actions builds the installer and publishes it as a new release. The download link above always points at the newest one. Installed copies find it through `latest.json` and offer to update.
+
+The release workflow signs updates with the repository secret `TAURI_SIGNING_PRIVATE_KEY`. Keep a backup of the key: without it, installed copies can never be updated again.

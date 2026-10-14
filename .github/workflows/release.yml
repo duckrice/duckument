@@ -40,16 +40,24 @@ jobs:
 
       - run: npm test
 
+      # Updates are signed with the key in this secret; installed copies check
+      # the signature before installing anything.
       - run: npm run tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
 
-      # The file keeps the same name in every release, so
+      # The installer keeps the same name in every release, so
       # .../releases/latest/download/Duckument-Setup.exe always works.
+      # latest.json tells installed copies about the new version.
       - name: Publish the installer
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp src-tauri/target/release/bundle/nsis/*-setup.exe Duckument-Setup.exe
-          gh release create "$GITHUB_REF_NAME" Duckument-Setup.exe \
+          node scripts/update-manifest.mjs src-tauri/target/release/bundle/nsis/*-setup.exe.sig \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/Duckument-Setup.exe" latest.json
+          gh release create "$GITHUB_REF_NAME" Duckument-Setup.exe latest.json \
             --title "Duckument ${GITHUB_REF_NAME#v}" \
             --notes-file .github/release-notes.md

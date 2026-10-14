@@ -75,6 +75,8 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             startup_file,
             read_file,

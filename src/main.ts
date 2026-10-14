@@ -3,7 +3,6 @@ import "./styles.css";
 
 import { h, isTyping } from "./dom";
 import { EncryptedPdfError, addItemsToPdf } from "./export";
-import { icon } from "./icons";
 import { Interaction, imageFromBlob } from "./interact";
 import { Overlay } from "./overlay";
 import {
@@ -22,10 +21,13 @@ import {
   writePath,
   type OpenedFile,
 } from "./platform";
+import { getVersion } from "@tauri-apps/api/app";
+import logo from "./assets/duckument.png";
 import { loadSettings } from "./settings";
 import { Store } from "./store";
 import { baseline, rasterizeText } from "./textmetrics";
 import { Toolbar } from "./toolbar";
+import { offerUpdate } from "./updates";
 import { OpenCancelled, Viewer } from "./viewer";
 
 const APP_NAME = "Duckument";
@@ -78,11 +80,12 @@ const toolbar: Toolbar = new Toolbar(store, viewer, interaction, settings, {
 const welcome = h(
   "div",
   { class: "welcome" },
-  h("div", { class: "welcome-icon", html: icon("document", 56) }),
+  h("img", { class: "welcome-logo", src: logo, alt: "", width: 96, height: 96 }),
   h("h1", {}, APP_NAME),
   h("p", {}, "Sign documents, fill in forms, add text and shapes."),
   h("button", { type: "button", class: "btn primary large", onclick: () => void openWithPicker() }, "Open a PDF"),
   h("p", { class: "muted" }, "or drop a file anywhere in this window"),
+  h("p", { class: "version muted" }),
 );
 viewerEl.append(welcome);
 app.append(toolbar.el, viewerEl, toasts);
@@ -325,6 +328,14 @@ if (!isDesktop) {
 }
 
 onCloseRequested(confirmDiscard);
+
+if (isDesktop) {
+  void getVersion().then((version) => {
+    welcome.querySelector(".version")!.textContent = `Version ${version}`;
+  });
+  // Give the first document a moment to open before going online.
+  setTimeout(() => void offerUpdate(toolbar.el, { beforeInstall: confirmDiscard }), 3000);
+}
 
 void startupFile().then((path) => {
   if (path) void openPath(path);
