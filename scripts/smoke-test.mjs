@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const exe = join(root, "src-tauri", "target", "release", "freepdfeditor.exe");
+const exe = join(root, "src-tauri", "target", "release", "duckument.exe");
 const sample = (name) => join(root, "samples", name);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Its own browser profile: the test then works while the app is open for real

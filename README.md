@@ -1,4 +1,4 @@
-# Free PDF Editor
+# Duckument
 
 A small, free Windows app for the everyday PDF jobs: signing a document, filling in a form, adding text, and marking things up with shapes. Everything happens on your own computer; no account, no uploads.
 
@@ -18,7 +18,7 @@ The signature is a picture of your signature placed on the page. It is not a cer
 
 ## Install
 
-**[Download FreePDFEditor-Setup.exe](https://github.com/duckrice/freepdfeditor/releases/latest/download/FreePDFEditor-Setup.exe)** and run it. That one file is all you need; it works on Windows 10 and 11.
+**[Download Duckument-Setup.exe](https://github.com/duckrice/duckument/releases/latest/download/Duckument-Setup.exe)** and run it. That one file is all you need; it works on Windows 10 and 11.
 
 Windows may show "Windows protected your PC" because the installer isn't code-signed. Click **More info**, then **Run anyway**.
 

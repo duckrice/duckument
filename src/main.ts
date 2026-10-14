@@ -28,7 +28,7 @@ import { baseline, rasterizeText } from "./textmetrics";
 import { Toolbar } from "./toolbar";
 import { OpenCancelled, Viewer } from "./viewer";
 
-const APP_NAME = "Free PDF Editor";
+const APP_NAME = "Duckument";
 
 interface OpenDocument {
   name: string;

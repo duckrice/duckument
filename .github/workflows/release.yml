@@ -43,13 +43,13 @@ jobs:
       - run: npm run tauri build
 
       # The file keeps the same name in every release, so
-      # .../releases/latest/download/FreePDFEditor-Setup.exe always works.
+      # .../releases/latest/download/Duckument-Setup.exe always works.
       - name: Publish the installer
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp src-tauri/target/release/bundle/nsis/*-setup.exe FreePDFEditor-Setup.exe
-          gh release create "$GITHUB_REF_NAME" FreePDFEditor-Setup.exe \
-            --title "Free PDF Editor ${GITHUB_REF_NAME#v}" \
+          cp src-tauri/target/release/bundle/nsis/*-setup.exe Duckument-Setup.exe
+          gh release create "$GITHUB_REF_NAME" Duckument-Setup.exe \
+            --title "Duckument ${GITHUB_REF_NAME#v}" \
             --notes-file .github/release-notes.md

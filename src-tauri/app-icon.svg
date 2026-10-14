@@ -6,8 +6,15 @@
     </linearGradient>
   </defs>
   <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
-  <path d="M320 208h272l144 144v432a40 40 0 0 1-40 40H320a40 40 0 0 1-40-40V248a40 40 0 0 1 40-40z" fill="#fff"/>
-  <path d="M592 208v104a40 40 0 0 0 40 40h104z" fill="#bfdbfe"/>
-  <path d="M356 480h312M356 560h220" stroke="#93c5fd" stroke-width="36" stroke-linecap="round"/>
-  <path d="M352 716c40-70 76-92 92-62 14 26-12 70 14 70 30 0 44-76 82-76 30 0 22 60 54 60 22 0 40-18 66-30" fill="none" stroke="#1d4ed8" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- the document -->
+  <path d="M252 150h270l130 130v420a40 40 0 0 1-40 40H252a40 40 0 0 1-40-40V190a40 40 0 0 1 40-40z" fill="#fff"/>
+  <path d="M522 150v90a40 40 0 0 0 40 40h90z" fill="#bfdbfe"/>
+  <path d="M280 350h270M280 430h300M280 510h170" stroke="#93c5fd" stroke-width="34" stroke-linecap="round"/>
+  <!-- the duck -->
+  <path d="M430 690 L372 572 Q440 600 500 640 Z" fill="#facc15"/>
+  <ellipse cx="640" cy="750" rx="235" ry="150" fill="#facc15"/>
+  <circle cx="760" cy="545" r="125" fill="#facc15"/>
+  <path d="M868 528 Q942 520 952 560 Q930 600 862 590 Z" fill="#f97316"/>
+  <circle cx="795" cy="510" r="22" fill="#1e293b"/>
+  <path d="M545 730 Q610 660 700 712 Q680 800 590 790 Q550 775 545 730 Z" fill="#eab308"/>
 </svg>
