@@ -1,8 +1,9 @@
 # Duckument: next improvements
 
-Agreed with the user on 2026-10-14. Work through the stages in order. Finish and
-test each one fully (its own tests, the full `npm run smoke:shots`, a commit)
-before starting the next. Nothing is published until the user says so.
+Agreed with the user on 2026-10-14. Work through the stages in order. Stage 1
+was tested on its own; from Stage 2 on the user asked to just develop and test
+everything together at the end (each stage still has to typecheck and build,
+and gets its tests written). Nothing is published until the user says so.
 
 Not included, by choice: "fill with my details", print, compress/OCR, password
 protection, code signing (the SmartScreen warning is fine).

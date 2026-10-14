@@ -1,82 +1,56 @@
 import "./generated/annotation-layer.css";
 import "./styles.css";
 
+import { getVersion } from "@tauri-apps/api/app";
+import logo from "./assets/duckument.png";
 import { h, isTyping } from "./dom";
-import { EncryptedPdfError, addItemsToPdf } from "./export";
-import { Interaction, imageFromBlob } from "./interact";
-import { Overlay } from "./overlay";
 import {
   baseName,
+  existingFiles,
   fromFile,
   isDesktop,
   onCloseRequested,
+  onFilesOpened,
   onPathsDropped,
-  pickImage,
   pickPdf,
-  pickSavePath,
   readPath,
-  readSystemFont,
   setTitle,
-  startupFile,
-  writePath,
+  startupFiles,
   type OpenedFile,
 } from "./platform";
-import { getVersion } from "@tauri-apps/api/app";
-import logo from "./assets/duckument.png";
+import { addRecent, loadRecent, removeRecent } from "./recent";
 import { loadSettings } from "./settings";
-import { Store } from "./store";
-import { baseline, rasterizeText } from "./textmetrics";
+import { DocTab, type TabHooks } from "./tab";
 import { Toolbar } from "./toolbar";
 import { offerUpdate } from "./updates";
-import { OpenCancelled, Viewer } from "./viewer";
+import { OpenCancelled } from "./viewer";
 
 const APP_NAME = "Duckument";
 
-interface OpenDocument {
-  name: string;
-  /** The file as it was opened; every save starts again from these bytes. */
-  bytes: Uint8Array;
-  /** Where the file came from, if it has a location on disk. */
-  path: string | null;
-  /** Where Save writes to, once the user has chosen. */
-  savePath: string | null;
-}
+const settings = loadSettings();
+const tabs: DocTab[] = [];
+let active: DocTab | null = null;
 
-let current: OpenDocument | null = null;
-let formsDirty = false;
-/** Whether the tip about detected blanks has been shown for this document. */
-let blanksAnnounced = false;
+const hooks: TabHooks = {
+  changed(tab) {
+    renderTabs();
+    if (tab === active) {
+      toolbar.update();
+      updateTitle();
+    }
+  },
+  toast,
+  askPassword,
+};
+
+// Stands in for a document while none is open, so the toolbar always has one.
+const nothingOpen = new DocTab(settings, hooks);
 
 const app = document.getElementById("app")!;
-const viewerEl = h("main", { class: "viewer" });
+const tabBar = h("nav", { class: "tab-bar", hidden: true, "aria-label": "Open documents" });
+const documents = h("div", { class: "documents" });
 const toasts = h("div", { class: "toasts" });
-
-const store = new Store();
-const settings = loadSettings();
-const viewer = new Viewer(viewerEl, {
-  onView: () => toolbar?.update(),
-  onFormEdit: () => {
-    formsDirty = true;
-    updateTitle();
-  },
-  onBlanks: (view) => {
-    const count = view.blanks?.length ?? 0;
-    if (!count || blanksAnnounced) return;
-    blanksAnnounced = true;
-    toast(`Found ${count} ${count === 1 ? "blank" : "blanks"} to fill in on page ${view.index + 1}. Click one to type in it; Tab moves to the next.`);
-  },
-  askPassword,
-});
-const overlay = new Overlay(store, viewer);
-const interaction = new Interaction(store, viewer, overlay, settings, () => toolbar?.update());
-const toolbar: Toolbar = new Toolbar(store, viewer, interaction, settings, {
-  open: () => void openWithPicker(),
-  save: () => void save(false),
-  saveAs: () => void save(true),
-  insertImage: () => void insertImage(),
-  toast,
-});
-
+const recentList = h("div", { class: "recent" });
 const welcome = h(
   "div",
   { class: "welcome" },
@@ -85,12 +59,19 @@ const welcome = h(
   h("p", {}, "Sign documents, fill in forms, add text and shapes."),
   h("button", { type: "button", class: "btn primary large", onclick: () => void openWithPicker() }, "Open a PDF"),
   h("p", { class: "muted" }, "or drop a file anywhere in this window"),
+  recentList,
   h("p", { class: "version muted" }),
 );
-viewerEl.append(welcome);
-app.append(toolbar.el, viewerEl, toasts);
-
-store.subscribe(updateTitle);
+const toolbar = new Toolbar(nothingOpen, settings, {
+  open: () => void openWithPicker(),
+  save: () => void active?.save(false),
+  saveAs: () => void active?.save(true),
+  insertImage: () => void active?.insertImage(),
+  toast,
+});
+documents.append(welcome);
+app.append(tabBar, toolbar.el, documents, toasts);
+void showRecent();
 updateTitle();
 
 // ---- small UI helpers -------------------------------------------------------
@@ -166,54 +147,124 @@ function askPassword(retry: boolean): Promise<string | null> {
   });
 }
 
-function isDirty() {
-  return store.dirty || formsDirty;
-}
-
 function updateTitle() {
-  setTitle(current ? `${isDirty() ? "● " : ""}${current.name} – ${APP_NAME}` : APP_NAME);
+  setTitle(active ? `${active.dirty ? "● " : ""}${active.name} – ${APP_NAME}` : APP_NAME);
 }
 
-// ---- opening ----------------------------------------------------------------
+// ---- tabs -------------------------------------------------------------------
 
-/** Offers to save unsaved work. Resolves to false if the user wants to stay. */
-async function confirmDiscard(): Promise<boolean> {
-  overlay.finishEdit();
-  if (!current || !isDirty()) return true;
-  const answer = await ask("Save your changes?", `"${current.name}" has changes that haven't been saved.`, [
+function activate(tab: DocTab | null) {
+  for (const other of tabs) other.active = other === tab;
+  active = tab;
+  welcome.hidden = !!tab;
+  toolbar.setTarget(tab ?? nothingOpen);
+  if (!tab) void showRecent();
+  renderTabs();
+  updateTitle();
+}
+
+function renderTabs() {
+  tabBar.hidden = tabs.length === 0;
+  if (tabBar.hidden) return;
+  tabBar.replaceChildren(
+    ...tabs.map((tab) => {
+      const close = h("span", { class: "tab-close", role: "button", title: "Close (Ctrl+W)", "aria-label": `Close ${tab.name}` }, "×");
+      const el = h(
+        "div",
+        {
+          class: `doc-tab${tab === active ? " active" : ""}${tab.dirty ? " dirty" : ""}`,
+          role: "tab",
+          "aria-selected": tab === active ? "true" : "false",
+          title: tab.file?.path ?? tab.name,
+        },
+        h("span", { class: "tab-name" }, tab.name),
+        h("span", { class: "tab-dot", "aria-label": "unsaved changes" }),
+        close,
+      );
+      el.addEventListener("pointerdown", (event) => {
+        // The middle button closes a tab, as in a web browser.
+        if (event.button === 1) {
+          event.preventDefault();
+          void closeTab(tab);
+        } else if (event.button === 0 && !(event.target as Element).closest(".tab-close")) activate(tab);
+      });
+      close.addEventListener("click", () => void closeTab(tab));
+      return el;
+    }),
+    h("button", { type: "button", class: "tab-add", title: "Open another PDF (Ctrl+O)", onclick: () => void openWithPicker() }, "+"),
+  );
+}
+
+/** Asks whether to save a document's changes. Resolves to false if the user wants to keep it open. */
+async function confirmDiscard(tab: DocTab): Promise<boolean> {
+  tab.overlay.finishEdit();
+  if (!tab.dirty) return true;
+  activate(tab);
+  const answer = await ask("Save your changes?", `"${tab.name}" has changes that haven't been saved.`, [
     { label: "Cancel", value: "cancel" },
     { label: "Don't save", value: "discard" },
     { label: "Save", value: "save", primary: true },
   ]);
   if (answer === "discard") return true;
-  if (answer === "save") return save(false);
+  if (answer === "save") return tab.save(false);
   return false;
 }
 
+/** Offers to save every document with changes. Resolves to false if the user wants to stay. */
+async function confirmDiscardAll(): Promise<boolean> {
+  for (const tab of [...tabs]) if (!(await confirmDiscard(tab))) return false;
+  return true;
+}
+
+async function closeTab(tab: DocTab): Promise<boolean> {
+  if (!(await confirmDiscard(tab))) return false;
+  const index = tabs.indexOf(tab);
+  if (index < 0) return true;
+  tabs.splice(index, 1);
+  tab.close();
+  if (active === tab) activate(tabs[Math.min(index, tabs.length - 1)] ?? null);
+  else renderTabs();
+  return true;
+}
+
+function cycleTabs(step: number) {
+  if (!active || tabs.length < 2) return;
+  const index = (tabs.indexOf(active) + step + tabs.length) % tabs.length;
+  activate(tabs[index]);
+}
+
+// ---- opening ----------------------------------------------------------------
+
+const samePath = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+
 async function openDocument(file: OpenedFile) {
-  if (!(await confirmDiscard())) return;
+  // A file that is already open is shown rather than opened twice.
+  const existing = tabs.find((tab) => samePath(tab.file?.path, file.path));
+  if (existing) {
+    activate(existing);
+    return;
+  }
+  const previous = active;
+  const tab = new DocTab(settings, hooks);
+  documents.append(tab.el);
+  // The new page area has to be on screen while opening, to size the pages to it.
+  if (previous) previous.active = false;
+  welcome.hidden = true;
+  tab.active = true;
   try {
-    await viewer.open(file.bytes);
+    await tab.open(file);
   } catch (error) {
+    tab.close();
+    activate(previous);
     if (!(error instanceof OpenCancelled)) {
       console.error(error);
       toast(`"${file.name}" could not be opened. It may be damaged or not a PDF.`, "error");
     }
     return;
   }
-  welcome.remove();
-  overlay.clear();
-  store.reset();
-  interaction.setTool("select");
-  current = { name: file.name, bytes: file.bytes, path: file.path, savePath: null };
-  formsDirty = false;
-  blanksAnnounced = false;
-  updateTitle();
-  toolbar.update();
-  // Field detection finishes shortly after the first page is shown.
-  setTimeout(() => {
-    if (viewer.hasForms) toast("This PDF has fillable fields. Click a field to type in it.");
-  }, 600);
+  tabs.push(tab);
+  activate(tab);
+  if (file.path) addRecent(file.path, file.name);
 }
 
 async function openWithPicker() {
@@ -227,67 +278,42 @@ async function openWithPicker() {
 }
 
 async function openPath(path: string) {
+  const existing = tabs.find((tab) => samePath(tab.file?.path, path));
+  if (existing) {
+    activate(existing);
+    return;
+  }
+  let file: OpenedFile;
   try {
-    await openDocument(await readPath(path));
+    file = await readPath(path);
   } catch (error) {
     console.error(error);
-    toast(String(error), "error");
+    removeRecent([path]);
+    toast(`"${baseName(path)}" could not be opened. It may have been moved or deleted.`, "error");
+    if (!active) void showRecent();
+    return;
   }
+  await openDocument(file);
 }
 
-// ---- saving -----------------------------------------------------------------
-
-async function buildPdf(doc: OpenDocument): Promise<Uint8Array> {
-  const pdf = viewer.pdf!;
-  // pdf.js writes the filled-in form fields; everything added on top is drawn afterwards.
-  const base = pdf.annotationStorage.size > 0 ? await pdf.saveDocument() : doc.bytes;
-  return addItemsToPdf(base, store.items, {
-    pageTransform: (index) => viewer.pageTransform(index),
-    baseline,
-    rasterizeText,
-    loadFont: isDesktop ? readSystemFont : undefined,
-  });
-}
-
-function suggestedSavePath(doc: OpenDocument): string {
-  const source = doc.path ?? doc.name;
-  return source.replace(/(\.pdf)?$/i, "-edited.pdf");
-}
-
-/** Saves the document. Resolves to true once it has been written. */
-async function save(chooseLocation: boolean): Promise<boolean> {
-  const doc = current;
-  if (!doc || !viewer.pdf) return false;
-  overlay.finishEdit();
-  try {
-    // The first save always asks, so the original file is only replaced on purpose.
-    let path = doc.savePath;
-    if (!path || chooseLocation) {
-      path = await pickSavePath(doc.savePath ?? suggestedSavePath(doc));
-      if (!path) return false;
-    }
-    await writePath(path, await buildPdf(doc));
-    if (current !== doc) return true;
-    doc.savePath = path;
-    formsDirty = false;
-    viewer.pdf.annotationStorage.resetModified();
-    store.markSaved();
-    updateTitle();
-    toast(`Saved as ${baseName(path)}`);
-    return true;
-  } catch (error) {
-    console.error(error);
-    toast(error instanceof EncryptedPdfError ? error.message : `Could not save: ${String(error)}`, "error");
-    return false;
-  }
-}
-
-async function insertImage() {
-  if (!viewer.pdf) return;
-  const blob = await pickImage();
-  const image = blob && (await imageFromBlob(blob));
-  if (image) interaction.placeImage(image.src, image.w, image.h);
-  else if (blob) toast("That file could not be read as a picture.", "error");
+/** Lists recently opened files that still exist on the start screen. */
+async function showRecent() {
+  const recent = loadRecent();
+  const exists = await existingFiles(recent.map((f) => f.path));
+  const gone = recent.filter((_, i) => !exists[i]).map((f) => f.path);
+  if (gone.length) removeRecent(gone);
+  const present = recent.filter((_, i) => exists[i]);
+  recentList.replaceChildren(
+    ...(present.length ? [h("h2", {}, "Recent files")] : []),
+    ...present.map((file) =>
+      h(
+        "button",
+        { type: "button", class: "recent-file", title: file.path, onclick: () => void openPath(file.path) },
+        h("span", { class: "recent-name" }, file.name),
+        h("span", { class: "recent-folder" }, file.path.slice(0, file.path.length - file.name.length).replace(/[\\/]$/, "")),
+      ),
+    ),
+  );
 }
 
 // ---- global input -----------------------------------------------------------
@@ -296,50 +322,60 @@ window.addEventListener("keydown", (event) => {
   if (document.querySelector("dialog[open]")) return;
   const key = event.key.toLowerCase();
   if (event.ctrlKey || event.metaKey) {
+    const viewer = active?.viewer;
     if (key === "o") void openWithPicker();
-    else if (key === "s") void save(event.shiftKey);
-    else if (key === "=" || key === "+") viewer.setZoom(viewer.zoom * 1.2);
-    else if (key === "-") viewer.setZoom(viewer.zoom / 1.2);
-    else if (key === "0") viewer.zoomToFitWidth();
+    else if (key === "s") void active?.save(event.shiftKey);
+    else if (key === "w") {
+      if (active) void closeTab(active);
+    } else if (key === "tab") cycleTabs(event.shiftKey ? -1 : 1);
+    else if (key === "pagedown") cycleTabs(1);
+    else if (key === "pageup") cycleTabs(-1);
+    else if (key === "=" || key === "+") viewer?.setZoom(viewer.zoom * 1.2);
+    else if (key === "-") viewer?.setZoom(viewer.zoom / 1.2);
+    else if (key === "0") viewer?.zoomToFitWidth();
     else return;
     event.preventDefault();
-  } else if (key === "s" && !event.altKey && !isTyping(event.target)) {
+  } else if (key === "s" && !event.altKey && !isTyping(event.target) && active) {
     toolbar.toggleSignMenu();
     event.preventDefault();
   }
 });
 
-onPathsDropped((paths) => {
-  const path = paths.find((p) => p.toLowerCase().endsWith(".pdf"));
-  if (path) void openPath(path);
-  else toast("Only PDF files can be opened.", "error");
-});
+const openPaths = (paths: string[]) => {
+  const pdfs = paths.filter((p) => p.toLowerCase().endsWith(".pdf"));
+  if (!pdfs.length && paths.length) toast("Only PDF files can be opened.", "error");
+  void (async () => {
+    for (const path of pdfs) await openPath(path);
+  })();
+};
+
+onPathsDropped(openPaths);
+onFilesOpened(openPaths);
 
 if (!isDesktop) {
   window.addEventListener("dragover", (event) => event.preventDefault());
   window.addEventListener("drop", (event) => {
     event.preventDefault();
-    const file = [...(event.dataTransfer?.files ?? [])].find((f) => f.name.toLowerCase().endsWith(".pdf"));
-    if (file) void fromFile(file).then(openDocument);
+    for (const file of event.dataTransfer?.files ?? []) {
+      if (file.name.toLowerCase().endsWith(".pdf")) void fromFile(file).then(openDocument);
+    }
   });
   window.addEventListener("beforeunload", (event) => {
-    if (isDirty()) event.preventDefault();
+    if (tabs.some((tab) => tab.dirty)) event.preventDefault();
   });
 }
 
-onCloseRequested(confirmDiscard);
+onCloseRequested(confirmDiscardAll);
 
 if (isDesktop) {
   void getVersion().then((version) => {
     welcome.querySelector(".version")!.textContent = `Version ${version}`;
   });
   // Give the first document a moment to open before going online.
-  setTimeout(() => void offerUpdate(toolbar.el, { beforeInstall: confirmDiscard }), 3000);
+  setTimeout(() => void offerUpdate(toolbar.el, { beforeInstall: confirmDiscardAll }), 3000);
 }
 
-void startupFile().then((path) => {
-  if (path) void openPath(path);
-});
+void startupFiles().then(openPaths);
 
 // Testing aid: `__fpe` in the console. In the installed app it is only there
 // after `localStorage["freepdfeditor.debug"] = "1"` and a reload.
@@ -352,14 +388,20 @@ try {
 if (debug) {
   Object.assign(window, {
     __fpe: {
-      store,
-      viewer,
-      build: () => buildPdf(current!),
-      /** Shows what saving would produce, in place of the document being edited. */
+      get store() {
+        return active?.store;
+      },
+      get viewer() {
+        return active?.viewer;
+      },
+      get tabs() {
+        return tabs.map((tab) => ({ name: tab.name, path: tab.file?.path ?? null, dirty: tab.dirty, active: tab === active }));
+      },
+      build: () => active!.build(),
+      activate: (index: number) => activate(tabs[index]),
+      /** Shows what saving would produce, in a new tab. */
       async showSaved() {
-        const bytes = await buildPdf(current!);
-        store.markSaved();
-        formsDirty = false;
+        const bytes = await active!.build();
         await openDocument({ name: "saved.pdf", path: null, bytes });
       },
     },

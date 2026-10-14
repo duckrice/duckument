@@ -3,6 +3,7 @@
 // file picker and a download.
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -97,8 +98,19 @@ export function readSystemFont(file: string): Promise<Uint8Array | null> {
   return font;
 }
 
-export async function startupFile(): Promise<string | null> {
-  return isDesktop ? invoke<string | null>("startup_file") : null;
+/** The PDFs Duckument was started with. */
+export async function startupFiles(): Promise<string[]> {
+  return isDesktop ? invoke<string[]>("startup_files") : [];
+}
+
+/** Calls `handler` with the files someone opens while Duckument is already running. */
+export function onFilesOpened(handler: (paths: string[]) => void) {
+  if (isDesktop) void listen<string[]>("open-files", (event) => handler(event.payload));
+}
+
+/** Which of `paths` still exist. */
+export async function existingFiles(paths: string[]): Promise<boolean[]> {
+  return isDesktop ? invoke<boolean[]>("existing_files", { paths }) : paths.map(() => false);
 }
 
 export function setTitle(title: string) {

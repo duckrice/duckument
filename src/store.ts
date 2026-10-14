@@ -29,8 +29,10 @@ export class Store {
   private redoStack: Item[][] = [];
   private listeners = new Set<() => void>();
 
-  subscribe(listener: () => void) {
+  /** Calls `listener` after every change; returns a function that stops it. */
+  subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   private emit() {

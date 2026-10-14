@@ -150,7 +150,8 @@ export class Viewer {
     });
 
     new ResizeObserver(() => {
-      if (this.pdf && this.fitWidth) this.applyZoom(this.fitWidthZoom());
+      // A document in a background tab is hidden and has no width at all.
+      if (this.pdf && this.fitWidth && container.clientWidth > 0) this.applyZoom(this.fitWidthZoom());
     }).observe(container);
 
     matchMedia("(resolution: 1dppx)").addEventListener("change", () => this.scheduleRender(0));

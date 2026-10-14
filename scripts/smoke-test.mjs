@@ -7,8 +7,8 @@
 //
 // Add `-- --screenshots` to also save pictures of the app along the way, into
 // test-screenshots/ (or `-- --screenshots=some/folder`).
-import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,12 +36,35 @@ function check(name, ok, detail = "") {
   console.log(`${ok ? "ok  " : "FAIL"}  ${name}${detail && !ok ? `  (${detail})` : ""}`);
 }
 
-/** Starts the app with `file` open and hands `run` helpers for driving it. */
-async function session(file, port, run) {
-  const child = spawn(exe, [file], {
-    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`, WEBVIEW2_USER_DATA_FOLDER: profile },
-    stdio: "ignore",
-  });
+/** The test's environment for a copy of the app. */
+const appEnv = (port, singleInstance) => ({
+  ...process.env,
+  WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
+  WEBVIEW2_USER_DATA_FOLDER: profile,
+  // Normally each test copy stands alone, so it can't hand files to a Duckument
+  // that is open for real use.
+  ...(singleInstance ? {} : { DUCKUMENT_MULTI_INSTANCE: "1" }),
+});
+
+/** Copies of Duckument currently running, by process id. */
+const runningCopies = () =>
+  execFileSync("powershell", ["-NoProfile", "-Command", "Get-Process -Name duckument -ErrorAction SilentlyContinue | ForEach-Object { $_.Id }; exit 0"], { encoding: "utf8" })
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map(Number);
+
+/** Asks a program's window to close, as clicking its X does. */
+const requestClose = (pid) =>
+  execFileSync("powershell", [
+    "-NoProfile",
+    "-Command",
+    `Add-Type -Name W -Namespace U -MemberDefinition '[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);'; [void][U.W]::PostMessage((Get-Process -Id ${pid}).MainWindowHandle, 0x10, [IntPtr]::Zero, [IntPtr]::Zero)`,
+  ]);
+
+/** Starts the app with `files` open and hands `run` helpers for driving it. */
+async function session(files, port, run, { singleInstance = false } = {}) {
+  files = [files].flat().filter(Boolean);
+  const child = spawn(exe, files, { env: appEnv(port, singleInstance), stdio: "ignore" });
   let target;
   for (let i = 0; i < 60 && !target; i++) {
     await sleep(500);
@@ -84,6 +107,8 @@ async function session(file, port, run) {
 
   const app = {
     errors,
+    pid: child.pid,
+    exited: () => child.exitCode !== null,
     async evaluate(expression) {
       const { result } = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
       if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? "evaluate failed");
@@ -163,7 +188,8 @@ async function session(file, port, run) {
   await send("Log.enable");
   await send("Page.enable");
   try {
-    await app.waitFor(`!!document.querySelector(".page canvas")`);
+    if (files.length) await app.waitFor(`!!document.querySelector(".page canvas")`);
+    else await app.waitFor(`!!document.querySelector(".welcome")`);
     await sleep(800);
     await run(app);
   } finally {
@@ -181,7 +207,7 @@ const CTRL = 2;
 
 await session(sample("form.pdf"), 9333, async (app) => {
   check("opens the file given on the command line", (await app.evaluate("document.title")).startsWith("form.pdf"));
-  check("startup_file reports that file", (await app.invoke("startup_file"))?.endsWith("form.pdf"));
+  check("startup_files reports that file", (await app.invoke("startup_files"))?.[0]?.endsWith("form.pdf"));
   check(
     "renders the page",
     await app.evaluate(`(() => {
@@ -299,6 +325,111 @@ await session(sample("form.pdf"), 9333, async (app) => {
   );
   check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
 });
+
+// ---- tabs, opening files into the running window, recent files ------------
+
+if (runningCopies().length) {
+  console.log("skip  tabs and single-window opening: another copy of Duckument is running, and files would go to it");
+} else {
+  const temporary = join(tmpdir(), "duckument-smoke-temporary.pdf");
+  copyFileSync(sample("flat.pdf"), temporary);
+  await session(sample("form.pdf"), 9338, async (app) => {
+    await app.debugHandle();
+    const tabs = () => app.evaluate("window.__fpe.tabs");
+    check("starts with one tab", (await tabs()).length === 1);
+
+    // Opening files from Explorer while Duckument runs: the new copy hands them over and quits.
+    const handOver = async (...files) => {
+      const before = (await tabs()).length;
+      const second = spawn(exe, files, { env: appEnv(9339, true), stdio: "ignore" });
+      const exited = await new Promise((resolve) => {
+        second.on("exit", () => resolve(true));
+        setTimeout(() => resolve(false), 15000);
+      });
+      await app.waitFor(`window.__fpe.tabs.length !== ${before}`, 8000);
+      return exited;
+    };
+    check("a second launch hands its file over and quits", await handOver(sample("letter.pdf")));
+    check("the file opens in a new tab", (await tabs()).length === 2 && (await tabs())[1].active);
+    await handOver(sample("fonts.pdf"), temporary);
+    await app.waitFor("window.__fpe.tabs.length === 4", 8000);
+    check("several files at once open in several tabs", (await tabs()).map((t) => t.name).join(",") === "form.pdf,letter.pdf,fonts.pdf,duckument-smoke-temporary.pdf");
+    check("still only one copy of Duckument running", runningCopies().length === 1);
+    await handOver(sample("letter.pdf"));
+    const afterReopen = await tabs();
+    check("opening a file that is already open switches to its tab", afterReopen.length === 4 && afterReopen[1].active);
+
+    // Each tab keeps its own edits and undo history.
+    await app.key("Tab", 9, CTRL);
+    await app.key("Tab", 9, CTRL * 1 + 8); // Ctrl+Shift+Tab goes back
+    check("Ctrl+Tab and Ctrl+Shift+Tab move between tabs", (await tabs())[1].active);
+    await app.evaluate("window.__fpe.activate(0)");
+    await app.tool("Rectangle");
+    const [l, t, w] = await app.pageBox();
+    await app.drag(l + w * 0.6, t + 150, l + w * 0.8, t + 220);
+    await app.evaluate("window.__fpe.activate(1)");
+    await app.tool("Ellipse");
+    const [l2, t2, w2] = await app.pageBox();
+    await app.drag(l2 + w2 * 0.6, t2 + 150, l2 + w2 * 0.8, t2 + 220);
+    await app.key("z", 90, CTRL);
+    check("undo only affects the tab you're in", (await app.evaluate("window.__fpe.store.items.length")) === 0);
+    await app.evaluate("window.__fpe.activate(0)");
+    check("the other tab keeps its edits", (await app.evaluate("window.__fpe.store.items.length")) === 1);
+    check("a tab with changes is marked", (await tabs())[0].dirty && (await app.count(".doc-tab.dirty")) === 1);
+    await app.shoot("tabs");
+
+    // Closing.
+    await app.evaluate("window.__fpe.activate(3)");
+    await app.key("w", 87, CTRL);
+    check("closing a tab without changes doesn't ask", (await tabs()).length === 3 && !(await app.count("dialog[open]")));
+    rmSync(temporary, { force: true });
+    await app.evaluate("window.__fpe.activate(0)");
+    await app.key("w", 87, CTRL);
+    check("closing a tab with changes asks first", await app.waitFor(`!!document.querySelector("dialog[open]")`, 3000));
+    await app.shoot("close-asks-to-save");
+    await app.clickOn("dialog[open] .btn"); // Cancel
+    await sleep(300);
+    check("Cancel keeps it open", (await tabs()).length === 3);
+    await app.key("w", 87, CTRL);
+    await app.waitFor(`!!document.querySelector("dialog[open]")`, 3000);
+    await app.clickOn("dialog[open] .btn", 1); // Don't save
+    check("Don't save closes it", await app.waitFor("window.__fpe.tabs.length === 2", 3000));
+    await app.key("w", 87, CTRL);
+    await app.key("w", 87, CTRL);
+    check("closing the last tab shows the start screen", await app.waitFor(`!document.querySelector(".welcome").hidden`, 3000));
+    await app.waitFor(`document.querySelectorAll(".recent-file").length > 0`, 3000);
+    const recent = await app.evaluate(`[...document.querySelectorAll(".recent-name")].map((el) => el.textContent)`);
+    check("recent files are listed, newest first, without the deleted one", recent.join(",") === "fonts.pdf,letter.pdf,form.pdf", recent.join(","));
+    await app.shoot("recent-files");
+    await app.clickOn(".recent-file", 1);
+    check("a recent file opens with one click", await app.waitFor(`window.__fpe.tabs.length === 1 && window.__fpe.tabs[0].name === "letter.pdf"`, 8000));
+    check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
+
+    // Closing the window with unsaved changes.
+    await app.tool("Rectangle");
+    const [l3, t3, w3] = await app.pageBox();
+    await app.drag(l3 + w3 * 0.6, t3 + 150, l3 + w3 * 0.8, t3 + 220);
+    requestClose(app.pid);
+    check("closing the window with unsaved changes asks first", await app.waitFor(`!!document.querySelector("dialog[open]")`, 5000));
+    await app.clickOn("dialog[open] .btn"); // Cancel
+    await sleep(1500);
+    check("Cancel keeps the window open", !app.exited() && runningCopies().length === 1);
+    requestClose(app.pid);
+    await app.waitFor(`!!document.querySelector("dialog[open]")`, 5000);
+    app.clickOn("dialog[open] .btn", 1).catch(() => {}); // Don't save; the window goes away mid-call
+    let closed = false;
+    for (let t = 0; t < 20 && !closed; t++) {
+      await sleep(250);
+      closed = app.exited();
+    }
+    check("Don't save closes the window", closed);
+  }, { singleInstance: true });
+
+  await session(null, 9340, async (app) => {
+    const recent = await app.evaluate(`[...document.querySelectorAll(".recent-name")].map((el) => el.textContent)`);
+    check("the recent list survives a restart", recent.join(",") === "letter.pdf,fonts.pdf,form.pdf", recent.join(","));
+  });
+}
 
 // ---- a flat form: blanks, editing text, and the saved file ------------------
 

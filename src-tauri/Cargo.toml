@@ -18,6 +18,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-process = "2"
+tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 percent-encoding = "2"
 # Needed by tauri::generate_context! once plugins have settings in tauri.conf.json.

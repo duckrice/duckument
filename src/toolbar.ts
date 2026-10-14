@@ -60,6 +60,13 @@ function kindOf(target: Item | Tool): Kind {
   return "none";
 }
 
+/** The document the toolbar is working on. */
+export interface ToolbarTarget {
+  store: Store;
+  viewer: Viewer;
+  interaction: Interaction;
+}
+
 export class Toolbar {
   readonly el: HTMLElement;
 
@@ -77,9 +84,7 @@ export class Toolbar {
   private signButton: HTMLButtonElement;
 
   constructor(
-    private store: Store,
-    private viewer: Viewer,
-    private interaction: Interaction,
+    private target: ToolbarTarget,
     private settings: Settings,
     private actions: Actions,
   ) {
@@ -88,11 +93,11 @@ export class Toolbar {
 
     const openButton = button("open", "Open a PDF (Ctrl+O)", actions.open, "Open");
     this.saveButton = button("save", "Save (Ctrl+S)", actions.save, "Save");
-    this.undoButton = button("undo", "Undo (Ctrl+Z)", () => store.undo());
-    this.redoButton = button("redo", "Redo (Ctrl+Y)", () => store.redo());
+    this.undoButton = button("undo", "Undo (Ctrl+Z)", () => this.store.undo());
+    this.redoButton = button("redo", "Redo (Ctrl+Y)", () => this.store.redo());
 
     const tools = TOOLS.map((def) => {
-      const el = button(def.icon, `${def.label} (${def.key})`, () => interaction.setTool(def.tool), def.text);
+      const el = button(def.icon, `${def.label} (${def.key})`, () => this.interaction.setTool(def.tool), def.text);
       this.toolButtons.set(def.tool, el);
       return el;
     });
@@ -106,9 +111,9 @@ export class Toolbar {
     this.signMenu = h("div", { class: "menu sign-menu", hidden: true });
     const imageButton = button("image", "Insert a picture", actions.insertImage);
 
-    const zoomOut = button("minus", "Zoom out (Ctrl+-)", () => viewer.setZoom(viewer.zoom / 1.2));
-    const zoomIn = button("plus", "Zoom in (Ctrl++)", () => viewer.setZoom(viewer.zoom * 1.2));
-    this.zoomLabel = h("button", { type: "button", class: "tb zoom", title: "Fit to window width (Ctrl+0)", onclick: () => viewer.zoomToFitWidth() });
+    const zoomOut = button("minus", "Zoom out (Ctrl+-)", () => this.viewer.setZoom(this.viewer.zoom / 1.2));
+    const zoomIn = button("plus", "Zoom in (Ctrl++)", () => this.viewer.setZoom(this.viewer.zoom * 1.2));
+    this.zoomLabel = h("button", { type: "button", class: "tb zoom", title: "Fit to window width (Ctrl+0)", onclick: () => this.viewer.zoomToFitWidth() });
     this.pageLabel = h("span", { class: "page-label" });
 
     // select, text, edit text | sign | check, cross | shapes... | picture
@@ -134,7 +139,27 @@ export class Toolbar {
     window.addEventListener("keydown", (event) => {
       if (event.key === "Escape") this.signMenu.hidden = true;
     });
-    store.subscribe(() => this.update());
+    this.update();
+  }
+
+  private get store() {
+    return this.target.store;
+  }
+
+  private get viewer() {
+    return this.target.viewer;
+  }
+
+  private get interaction() {
+    return this.target.interaction;
+  }
+
+  /** Switches the toolbar over to another document. */
+  setTarget(target: ToolbarTarget) {
+    if (target === this.target) return;
+    this.target = target;
+    this.signMenu.hidden = true;
+    this.propsKey = "";
     this.update();
   }
 

@@ -5,16 +5,29 @@ use std::{
 
 use percent_encoding::percent_decode_str;
 use tauri::ipc::{InvokeBody, Request, Response};
+use tauri::{Emitter, Manager};
 
-/// The PDF the app was launched with ("Open with" or a double-click), if any.
-#[tauri::command]
-fn startup_file() -> Option<String> {
-    std::env::args_os()
-        .skip(1)
+/// The files among a program's arguments, as absolute paths.
+fn files_in<I: IntoIterator<Item = std::ffi::OsString>>(args: I, cwd: &Path) -> Vec<String> {
+    args.into_iter()
         .map(PathBuf::from)
-        .find(|path| path.is_file())
-        .and_then(|path| std::path::absolute(path).ok())
+        .map(|path| if path.is_absolute() { path } else { cwd.join(path) })
+        .filter(|path| path.is_file())
         .map(|path| path.to_string_lossy().into_owned())
+        .collect()
+}
+
+/// The PDFs the app was launched with ("Open with" or a double-click).
+#[tauri::command]
+fn startup_files() -> Vec<String> {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    files_in(std::env::args_os().skip(1), &cwd)
+}
+
+/// Which of the given files still exist, for the list of recent files.
+#[tauri::command]
+fn existing_files(paths: Vec<String>) -> Vec<bool> {
+    paths.iter().map(|path| Path::new(path).is_file()).collect()
 }
 
 #[tauri::command]
@@ -73,12 +86,27 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // Opening a PDF while Duckument is running hands it to the open window,
+    // which shows it in a new tab. Tests set DUCKUMENT_MULTI_INSTANCE so they
+    // can run beside a copy that is in use.
+    if std::env::var_os("DUCKUMENT_MULTI_INSTANCE").is_none() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            let files = files_in(args.into_iter().skip(1).map(Into::into), Path::new(&cwd));
+            let _ = app.emit("open-files", files);
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }));
+    }
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
-            startup_file,
+            startup_files,
+            existing_files,
             read_file,
             read_system_font,
             write_file

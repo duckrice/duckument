@@ -131,6 +131,8 @@ function caretIndex(item: TextItem, x: number): number {
 
 export class Interaction {
   tool: Tool = "select";
+  /** Whether this document is the one on screen; only that one takes keyboard input. */
+  active = true;
 
   private drag: Drag | null = null;
   private pending: { src: string; w: number; h: number } | null = null;
@@ -157,10 +159,25 @@ export class Interaction {
     root.addEventListener("mousedown", (event) => {
       if (!isTyping(event.target) && this.viewer.pageFromElement(event.target as Element)) event.preventDefault();
     });
-    window.addEventListener("keydown", (event) => this.onKeyDown(event));
-    window.addEventListener("paste", (event) => this.onPaste(event));
+    window.addEventListener("keydown", this.keyListener);
+    window.addEventListener("paste", this.pasteListener);
     overlay.onTab = (item, back) => this.tabFrom(item, back);
     root.dataset.tool = this.tool;
+  }
+
+  private keyListener = (event: KeyboardEvent) => {
+    if (this.active) this.onKeyDown(event);
+  };
+
+  private pasteListener = (event: ClipboardEvent) => {
+    if (this.active) this.onPaste(event);
+  };
+
+  /** Stops listening; call when the document is closed. */
+  dispose() {
+    window.removeEventListener("keydown", this.keyListener);
+    window.removeEventListener("paste", this.pasteListener);
+    this.ghost.remove();
   }
 
   setTool(tool: Tool) {
