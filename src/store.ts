@@ -1,4 +1,4 @@
-import type { Item } from "./model";
+import type { Item, PageRef } from "./model";
 
 export type Tool =
   | "select"
@@ -14,19 +14,26 @@ export type Tool =
   | "whiteout"
   | "place";
 
+/** Everything about a document that can be undone. */
+export interface DocState {
+  items: Item[];
+  pages: PageRef[];
+}
+
 /**
- * The items added to the open document, with undo history. Items and the
- * array holding them are never mutated, so a history entry is just a reference
- * to an earlier array.
+ * The open document's pages and the items added to them, with undo history.
+ * Neither items nor the arrays holding them are ever mutated, so a history
+ * entry is just a reference to an earlier state.
  */
 export class Store {
   items: Item[] = [];
+  pages: PageRef[] = [];
   selectedId: string | null = null;
 
-  private committed: Item[] = this.items;
-  private saved: Item[] = this.items;
-  private undoStack: Item[][] = [];
-  private redoStack: Item[][] = [];
+  private committed: DocState = { items: this.items, pages: this.pages };
+  private saved: DocState = this.committed;
+  private undoStack: DocState[] = [];
+  private redoStack: DocState[] = [];
   private listeners = new Set<() => void>();
 
   /** Calls `listener` after every change; returns a function that stops it. */
@@ -69,29 +76,52 @@ export class Store {
     this.emit();
   }
 
+  /** Replaces the pages, and the items that move along with them, as one undo step. */
+  apply(state: DocState) {
+    if (state.pages === this.pages && state.items === this.items) return;
+    this.pages = state.pages;
+    this.items = state.items;
+    this.commit();
+    this.emit();
+  }
+
+  private get current(): DocState {
+    return { items: this.items, pages: this.pages };
+  }
+
   /** Turns the changes since the last commit into one undo step. */
   commit() {
-    if (this.items === this.committed) return;
+    const { committed } = this;
+    if (this.items === committed.items && this.pages === committed.pages) return;
     // Adding something and removing it again leaves nothing to undo.
-    if (this.items.length === this.committed.length && this.items.every((item, i) => item === this.committed[i])) {
-      this.items = this.committed;
+    if (
+      this.pages === committed.pages &&
+      this.items.length === committed.items.length &&
+      this.items.every((item, i) => item === committed.items[i])
+    ) {
+      this.items = committed.items;
       return;
     }
-    this.undoStack.push(this.committed);
+    this.undoStack.push(committed);
     this.redoStack = [];
-    this.committed = this.items;
+    this.committed = this.current;
     this.emit();
   }
 
   /** Whether an item was already there at the last commit. */
   isCommitted(id: string): boolean {
-    return this.committed.some((item) => item.id === id);
+    return this.committed.items.some((item) => item.id === id);
   }
 
   /** Drops the changes since the last commit. */
   revert() {
-    if (this.items === this.committed) return;
-    this.items = this.committed;
+    if (this.items === this.committed.items && this.pages === this.committed.pages) return;
+    this.restore(this.committed);
+  }
+
+  private restore(state: DocState) {
+    this.items = state.items;
+    this.pages = state.pages;
     this.emit();
   }
 
@@ -107,20 +137,20 @@ export class Store {
     const previous = this.undoStack.pop();
     if (!previous) return;
     this.redoStack.push(this.committed);
-    this.items = this.committed = previous;
-    this.emit();
+    this.committed = previous;
+    this.restore(previous);
   }
 
   redo() {
     const next = this.redoStack.pop();
     if (!next) return;
     this.undoStack.push(this.committed);
-    this.items = this.committed = next;
-    this.emit();
+    this.committed = next;
+    this.restore(next);
   }
 
   get dirty() {
-    return this.committed !== this.saved;
+    return this.committed.items !== this.saved.items || this.committed.pages !== this.saved.pages;
   }
 
   markSaved() {
@@ -128,8 +158,11 @@ export class Store {
     this.emit();
   }
 
-  reset() {
-    this.items = this.committed = this.saved = [];
+  /** Starts a new document with these pages and nothing added. */
+  reset(pages: PageRef[] = []) {
+    this.items = [];
+    this.pages = pages;
+    this.committed = this.saved = this.current;
     this.undoStack = [];
     this.redoStack = [];
     this.selectedId = null;

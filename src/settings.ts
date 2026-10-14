@@ -9,6 +9,8 @@ export interface Settings {
   stroke: string;
   strokeWidth: number;
   fill: string | null;
+  /** Whether the page sidebar is shown. */
+  showPages: boolean;
 }
 
 const KEY = "freepdfeditor.settings";
@@ -22,6 +24,7 @@ const DEFAULTS: Settings = {
   stroke: "#000000",
   strokeWidth: 1.5,
   fill: null,
+  showPages: true,
 };
 
 export function loadSettings(): Settings {

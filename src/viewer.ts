@@ -1,6 +1,7 @@
-// Shows the pages of a PDF in a scrolling column. Only pages near the viewport
-// are rendered, and zooming rescales what's on screen immediately while sharp
-// versions are drawn in the background.
+// Shows a document's pages in a scrolling column. The pages can come from
+// several PDFs, in any order and turned any way (see PageRef). Only pages near
+// the viewport are rendered, and zooming rescales what's on screen immediately
+// while sharp versions are drawn in the background.
 
 import {
   AnnotationLayer,
@@ -18,7 +19,7 @@ import { detectBlanks, type Blank } from "./blanks";
 import { h } from "./dom";
 import type { Matrix } from "./export";
 import type { FontEvidence } from "./fontmatch";
-import type { Box } from "./model";
+import type { Box, PageRef } from "./model";
 import { buildRuns, type TextRun } from "./textruns";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
@@ -54,8 +55,13 @@ const linkService = {
 };
 
 export interface PageView {
+  /** Which page this is, and where it comes from. */
+  ref: PageRef;
+  /** Position in the document. */
   index: number;
+  /** Takes the room of the page as turned; `inner` is the page itself, turned with CSS. */
   el: HTMLElement;
+  inner: HTMLElement;
   canvasWrap: HTMLElement;
   /** Highlights for detected blanks and for editable text. */
   blanksEl: HTMLElement;
@@ -64,9 +70,10 @@ export interface PageView {
   covers: HTMLElement;
   items: HTMLElement;
   chrome: HTMLElement;
-  /** Page size in points, as displayed. */
+  /** Page size in points, before the user's turning (but with the PDF's own rotation). */
   width: number;
   height: number;
+  /** Null for an inserted blank page, and until loaded. */
   pdfPage: PDFPageProxy | null;
   task: RenderTask | null;
   /** Identifies the zoom and pixel density the current canvas was drawn for. */
@@ -89,8 +96,14 @@ export interface ViewerHooks {
 
 export class OpenCancelled extends Error {}
 
+/** The id of the document's own PDF among the sources of its pages. */
+export const PRIMARY = "0";
+
 export class Viewer {
+  /** The document's own PDF. */
   pdf: PDFDocumentProxy | null = null;
+  /** Every PDF the pages come from, the document's own one included, by source id. */
+  readonly sources = new Map<string, PDFDocumentProxy>();
   pages: PageView[] = [];
   zoom = 1;
   currentPage = 0;
@@ -165,8 +178,8 @@ export class Viewer {
     return `${this.scale.toFixed(4)}@${window.devicePixelRatio}`;
   }
 
-  async open(bytes: Uint8Array) {
-    const attempt = ++this.generation;
+  /** Opens a PDF, asking for its password if it has one. Throws OpenCancelled if the user gives up. */
+  async load(bytes: Uint8Array): Promise<PDFDocumentProxy> {
     // pdf.js takes ownership of the buffer it is given, so hand it a copy.
     const task = getDocument({
       data: bytes.slice(),
@@ -184,44 +197,75 @@ export class Viewer {
         else submit(password);
       });
     };
-
-    let pdf: PDFDocumentProxy;
     try {
-      pdf = await task.promise;
+      return await task.promise;
     } catch (error) {
       if (task.destroyed) throw new OpenCancelled();
       throw error;
     }
-    if (attempt !== this.generation) {
-      void pdf.loadingTask.destroy();
-      throw new OpenCancelled();
-    }
+  }
 
+  /** Shows a newly opened document. */
+  async show(pdf: PDFDocumentProxy, pages: PageRef[]) {
     const first = await pdf.getPage(1);
     this.close();
     const generation = this.generation;
     this.pdf = pdf;
-    (pdf.annotationStorage as { onSetModified: (() => void) | null }).onSetModified = () => this.hooks.onFormEdit();
+    this.addSource(PRIMARY, pdf);
     void pdf.getFieldObjects().then((fields) => {
       if (generation === this.generation) this.hasForms = !!fields && fields.size > 0;
     });
-
-    const size = first.getViewport({ scale: 1 });
-    const fragment = document.createDocumentFragment();
-    for (let index = 0; index < pdf.numPages; index++) {
-      const view = this.createPage(index, size.width, size.height);
-      this.pages.push(view);
-      fragment.append(view.el);
-    }
-    this.pages[0].pdfPage = first;
-    this.pagesEl.append(fragment);
-
+    this.firstSize = first.getViewport({ scale: 1 });
+    this.layout(pages);
+    if (pages[0]?.source === PRIMARY && pages[0].index === 0) this.pages[0].pdfPage = first;
     this.fitWidth = true;
     this.applyZoom(this.fitWidthZoom());
     this.container.scrollTo(0, 0);
-    for (const view of this.pages) this.observer.observe(view.el);
+  }
+
+  /** Makes another PDF's pages available, for merging. */
+  addSource(id: string, pdf: PDFDocumentProxy) {
+    this.sources.set(id, pdf);
+    (pdf.annotationStorage as { onSetModified: (() => void) | null }).onSetModified = () => this.hooks.onFormEdit();
+  }
+
+  private firstSize: { width: number; height: number } = { width: 595, height: 842 };
+
+  /** Arranges the pages as `refs` lists them, reusing what is already drawn. */
+  layout(refs: PageRef[]) {
+    const existing = new Map(this.pages.map((view) => [view.ref.id, view]));
+    const next: PageView[] = [];
+    refs.forEach((ref, index) => {
+      let view = existing.get(ref.id);
+      if (view) existing.delete(ref.id);
+      else {
+        const size = ref.blank ?? this.firstSize;
+        view = this.createPage(ref, size.width, size.height);
+        this.observer.observe(view.el);
+      }
+      view.ref = ref;
+      view.index = index;
+      view.el.dataset.page = String(index);
+      this.setRotation(view);
+      next.push(view);
+    });
+    for (const view of existing.values()) {
+      view.task?.cancel();
+      this.observer.unobserve(view.el);
+      this.visible.delete(view);
+      view.el.remove();
+    }
+    this.pages = next;
+
+    let cursor = this.pagesEl.firstElementChild;
+    for (const view of next) {
+      if (view.el === cursor) cursor = cursor.nextElementSibling;
+      else this.pagesEl.insertBefore(view.el, cursor);
+    }
+    this.currentPage = Math.min(this.currentPage, Math.max(0, next.length - 1));
+    void this.measurePages(this.generation);
     this.hooks.onView();
-    void this.measurePages(generation);
+    this.scheduleRender(0);
   }
 
   close() {
@@ -233,13 +277,14 @@ export class Viewer {
     this.pages = [];
     this.visible.clear();
     this.pagesEl.replaceChildren();
-    void this.pdf?.loadingTask.destroy();
+    for (const pdf of this.sources.values()) void pdf.loadingTask.destroy();
+    this.sources.clear();
     this.pdf = null;
     this.hasForms = false;
     this.currentPage = 0;
   }
 
-  private createPage(index: number, width: number, height: number): PageView {
+  private createPage(ref: PageRef, width: number, height: number): PageView {
     const canvasWrap = h("div", { class: "canvas-wrap" });
     const blanksEl = h("div", { class: "blanks" });
     const runsEl = h("div", { class: "runs" });
@@ -247,10 +292,13 @@ export class Viewer {
     const items = h("div", { class: "items" });
     const chrome = h("div", { class: "chrome" });
     const overlay = h("div", { class: "overlay" }, blanksEl, runsEl, covers, items, chrome);
-    const el = h("div", { class: "page", "data-page": index }, canvasWrap, overlay);
+    const inner = h("div", { class: "page-inner" }, canvasWrap, overlay);
+    const el = h("div", { class: "page" }, inner);
     const view: PageView = {
-      index,
+      ref,
+      index: 0,
       el,
+      inner,
       canvasWrap,
       blanksEl,
       runsEl,
@@ -264,8 +312,9 @@ export class Viewer {
       renderedKey: "",
       formsBuilt: false,
       widgets: [],
-      blanks: null,
-      runs: null,
+      // A blank page has nothing to find.
+      blanks: ref.blank ? [] : null,
+      runs: ref.blank ? [] : null,
     };
     this.setPageSize(view, width, height);
     return view;
@@ -277,6 +326,19 @@ export class Viewer {
     view.height = height;
     view.el.style.setProperty("--w", String(width));
     view.el.style.setProperty("--h", String(height));
+    this.setRotation(view);
+  }
+
+  /** How far the user has turned a page: 0, 90, 180 or 270 degrees clockwise. */
+  rotationOf(view: PageView): number {
+    return view.ref.rotation;
+  }
+
+  private setRotation(view: PageView) {
+    const turned = view.ref.rotation % 180 !== 0;
+    view.el.dataset.rotation = String(view.ref.rotation);
+    view.el.style.setProperty("--ow", String(turned ? view.height : view.width));
+    view.el.style.setProperty("--oh", String(turned ? view.width : view.height));
   }
 
   /** Pages start out with the first page's size; correct the ones that differ. */
@@ -287,9 +349,16 @@ export class Viewer {
     }
   }
 
-  private async loadPage(view: PageView): Promise<PDFPageProxy> {
+  /** The pdf.js page behind a view; null for a blank page. */
+  private async loadPage(view: PageView): Promise<PDFPageProxy | null> {
+    if (view.ref.blank) {
+      this.setPageSize(view, view.ref.blank.width, view.ref.blank.height);
+      return null;
+    }
     if (!view.pdfPage) {
-      view.pdfPage = await this.pdf!.getPage(view.index + 1);
+      const source = this.sources.get(view.ref.source);
+      if (!source) return null;
+      view.pdfPage = await source.getPage(view.ref.index + 1);
       const size = view.pdfPage.getViewport({ scale: 1 });
       this.setPageSize(view, size.width, size.height);
     }
@@ -299,7 +368,7 @@ export class Viewer {
   // ---- zoom ---------------------------------------------------------------
 
   private fitWidthZoom(): number {
-    const widest = Math.max(...this.pages.map((view) => view.width));
+    const widest = Math.max(...this.pages.map((view) => (view.ref.rotation % 180 ? view.height : view.width)));
     const available = this.container.clientWidth - 48;
     return Math.min(1.5, Math.max(MIN_ZOOM, available / (widest * CSS_UNITS)));
   }
@@ -369,10 +438,21 @@ export class Viewer {
     }
   }
 
-  /** Converts client coordinates to a point on a page, in PDF points. */
+  /** Converts client coordinates to a point on a page, in PDF points, undoing the user's turning of the page. */
   pointOn(view: PageView, clientX: number, clientY: number): { x: number; y: number } {
     const rect = view.el.getBoundingClientRect();
-    return { x: (clientX - rect.left) / this.scale, y: (clientY - rect.top) / this.scale };
+    const dx = (clientX - rect.left) / this.scale;
+    const dy = (clientY - rect.top) / this.scale;
+    switch (view.ref.rotation) {
+      case 90:
+        return { x: dy, y: view.height - dx };
+      case 180:
+        return { x: view.width - dx, y: view.height - dy };
+      case 270:
+        return { x: view.width - dy, y: dx };
+      default:
+        return { x: dx, y: dy };
+    }
   }
 
   pageFromElement(el: Element | null): PageView | null {
@@ -380,9 +460,14 @@ export class Viewer {
     return pageEl ? (this.pages[Number(pageEl.dataset.page)] ?? null) : null;
   }
 
-  /** The matrix that maps PDF user space to the page as displayed at scale 1. */
+  /**
+   * The matrix that maps PDF user space to a page as displayed at scale 1,
+   * before the user's turning (items are kept in that space).
+   */
   async pageTransform(index: number): Promise<Matrix> {
-    const page = await this.loadPage(this.pages[index]);
+    const view = this.pages[index];
+    const page = await this.loadPage(view);
+    if (!page) return [1, 0, 0, -1, 0, view.height];
     return page.getViewport({ scale: 1 }).transform as Matrix;
   }
 
@@ -437,6 +522,12 @@ export class Viewer {
     const generation = this.generation;
     const page = await this.loadPage(view);
     if (generation !== this.generation) return;
+    if (!page) {
+      // A blank page: nothing to draw but white.
+      view.canvasWrap.replaceChildren();
+      view.renderedKey = key;
+      return;
+    }
 
     const viewport = page.getViewport({ scale: this.scale });
     let density = window.devicePixelRatio || 1;
@@ -473,7 +564,8 @@ export class Viewer {
     const annotations = (await page.getAnnotations({ intent: "display" })).filter(
       (annotation) => annotation.subtype === "Widget",
     );
-    if (!annotations.length || !this.pdf || view.pdfPage !== page) return;
+    const source = this.sources.get(view.ref.source);
+    if (!annotations.length || !source || view.pdfPage !== page) return;
 
     const upright = page.getViewport({ scale: 1 });
     view.widgets = annotations.map((annotation) => {
@@ -483,9 +575,9 @@ export class Viewer {
     });
 
     const div = h("div", { class: "annotationLayer" });
-    view.el.insertBefore(div, view.canvasWrap.nextSibling);
+    view.inner.insertBefore(div, view.canvasWrap.nextSibling);
     const viewport = upright.clone({ dontFlip: true });
-    const annotationStorage = this.pdf.annotationStorage;
+    const annotationStorage = source.annotationStorage;
     const layer = new AnnotationLayer({
       div,
       page,

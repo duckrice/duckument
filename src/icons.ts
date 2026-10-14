@@ -21,6 +21,12 @@ const PATHS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   minus: '<path d="M5 12h14"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  rotateLeft: '<path d="M4 4v5h5"/><path d="M4.5 9A8 8 0 1 1 6 16.5"/>',
+  rotateRight: '<path d="M20 4v5h-5"/><path d="M19.5 9A8 8 0 1 0 18 16.5"/>',
+  pageAdd: '<path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M14 3v5h5M12 11v6M9 14h6"/>',
+  merge: '<path d="M8 3h6l4 4v9a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M3 8v11a2 2 0 0 0 2 2h9"/>',
+  extract: '<path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M12 10v7M9 14l3 3 3-3"/>',
+  pages: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
   caret: '<path d="m7 10 5 5 5-5"/>',
   document: '<path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
 } as const;

@@ -622,17 +622,40 @@ select {
   display: none;
 }
 
+/* .page takes the room of the page as the user turned it; .page-inner is the
+   page itself, the right way up, turned with a transform. */
 .page {
   position: relative;
   /* Keeps the layer order below local to the page. */
   isolation: isolate;
   flex: none;
-  width: round(down, calc(var(--w) * var(--s) * 1px), 1px);
-  height: round(down, calc(var(--h) * var(--s) * 1px), 1px);
+  width: round(down, calc(var(--ow) * var(--s) * 1px), 1px);
+  height: round(down, calc(var(--oh) * var(--s) * 1px), 1px);
   background: #fff;
   box-shadow:
     0 0 0 1px rgb(0 0 0 / 0.06),
     0 2px 8px rgb(0 0 0 / 0.16);
+}
+
+.page-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: round(down, calc(var(--w) * var(--s) * 1px), 1px);
+  height: round(down, calc(var(--h) * var(--s) * 1px), 1px);
+  transform-origin: 0 0;
+}
+
+.page[data-rotation="90"] .page-inner {
+  transform: translateX(round(down, calc(var(--h) * var(--s) * 1px), 1px)) rotate(90deg);
+}
+
+.page[data-rotation="180"] .page-inner {
+  transform: translate(round(down, calc(var(--w) * var(--s) * 1px), 1px), round(down, calc(var(--h) * var(--s) * 1px), 1px)) rotate(180deg);
+}
+
+.page[data-rotation="270"] .page-inner {
+  transform: translateY(round(down, calc(var(--w) * var(--s) * 1px), 1px)) rotate(270deg);
 }
 
 .canvas-wrap canvas {
@@ -643,7 +666,7 @@ select {
   height: 100%;
 }
 
-.page > .annotationLayer {
+.page-inner > .annotationLayer {
   position: absolute;
   top: 0;
   left: 0;
@@ -810,7 +833,7 @@ select {
 
 /* Fields stay see-through (apart from their tint) so a signature or text
    placed over one isn't hidden behind it. */
-.page > .annotationLayer :is(input, textarea, select) {
+.page-inner > .annotationLayer :is(input, textarea, select) {
   background-color: transparent;
 }
 
@@ -1017,4 +1040,105 @@ select {
   font-size: 12px;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* ---- page sidebar ------------------------------------------------------- */
+
+.doc {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.doc[hidden] {
+  display: none;
+}
+
+.thumbs {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 168px;
+  border-right: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.documents.no-sidebar .thumbs {
+  display: none;
+}
+
+.thumb-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.thumb-list {
+  position: relative;
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 0 24px;
+  outline: none;
+}
+
+.thumb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 0 auto 10px;
+  padding: 6px;
+  width: 132px;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.thumb:hover {
+  background: var(--hover);
+}
+
+.thumb.selected {
+  background: var(--accent-soft);
+}
+
+.thumb-picture {
+  width: 116px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.08),
+    0 1px 4px rgb(0 0 0 / 0.14);
+}
+
+.thumb.current .thumb-picture {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.thumb-picture canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.thumb-number {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.thumb-list.dragging {
+  cursor: grabbing;
+}
+
+.thumb-drop {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
 }

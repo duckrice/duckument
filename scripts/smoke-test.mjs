@@ -431,6 +431,82 @@ if (runningCopies().length) {
   });
 }
 
+// ---- page tools -------------------------------------------------------------
+
+await session(sample("flat.pdf"), 9341, async (app) => {
+  await app.debugHandle();
+  const pages = () => app.evaluate(`window.__fpe.store.pages.map((p) => (p.blank ? "blank" : \`\${p.source}:\${p.index + 1}\`) + (p.rotation ? "@" + p.rotation : ""))`);
+  check("the page sidebar shows every page", (await app.count(".thumb")) === 12);
+  await app.waitFor(`document.querySelectorAll(".thumb-picture canvas").length >= 4`, 8000);
+  await app.clickOn(".thumb", 2);
+  check("clicking a thumbnail goes to that page", await app.waitFor("window.__fpe.viewer.currentPage === 2", 3000));
+  await app.clickOn(`.thumb-tools [title="Turn right"]`);
+  check("turns the selected page", (await pages())[2] === "0:3@90" && (await app.evaluate(`document.querySelectorAll(".page")[2].dataset.rotation`)) === "90");
+  await app.shoot("page-turned");
+
+  // Items stay on their page as pages move, and stay put on a turned page.
+  await app.tool("Add text");
+  const [x, y, w, h] = await app.center(".page", 2);
+  await app.click(x - w * 0.2, y);
+  await app.type("Note on page 3");
+  await app.key(...ESC);
+  await app.key(...ESC);
+  const onPage = () => app.evaluate(`window.__fpe.store.items.map((i) => i.page)`);
+  check("adds text on a turned page", (await onPage()).join() === "2");
+  void h;
+
+  await app.clickOn(".thumb", 1);
+  await app.clickOn(`.thumb-tools [title^="Delete"]`);
+  check("deletes a page", (await pages()).length === 11 && !(await pages()).includes("0:2"));
+  check("the text moved up with its page", (await onPage()).join() === "1");
+
+  // Drag page 1 below page 4.
+  const from = await app.center(".thumb", 0);
+  const to = await app.center(".thumb", 3);
+  await app.drag(from[0], from[1], to[0], to[1] + to[3] * 0.45);
+  check("dragging a thumbnail reorders the pages", (await pages()).slice(0, 4).join() === "0:3@90,0:4,0:5,0:1", (await pages()).slice(0, 5).join());
+  check("and the text follows its page", (await onPage()).join() === "0");
+
+  await app.clickOn(`.thumb-tools [title="Insert a blank page"]`);
+  check("inserts a blank page", (await pages()).includes("blank") && (await pages()).length === 12);
+
+  await app.evaluate(`window.__fpe.addPdf(${JSON.stringify(sample("form.pdf"))}, 0)`);
+  check("merges another PDF's pages", (await pages())[0] === "1:1" && (await pages()).length === 13);
+  check("the merged page's form fields work", await app.waitFor(`document.querySelectorAll(".page")[0].querySelectorAll(".annotationLayer input").length > 0`, 8000));
+  await app.shoot("pages-rearranged");
+
+  const saved = await app.evaluate(`(async () => {
+    const pdfjs = window.__fpe.viewer.pdf;
+    void pdfjs;
+    const bytes = await window.__fpe.build();
+    return Array.from(bytes.slice(0, 5)).join() + "|" + bytes.length;
+  })()`);
+  check("saves the rearranged document", saved.startsWith("37,80,68,70,45"), saved);
+  const extracted = await app.evaluate(`(async () => {
+    const ids = window.__fpe.store.pages.slice(1, 3).map((p) => p.id);
+    const bytes = await window.__fpe.tab.buildPages(ids);
+    return bytes.length;
+  })()`);
+  check("extracts pages as a new PDF", extracted > 500, String(extracted));
+
+  for (let i = 0; i < 6; i++) await app.key("z", 90, CTRL);
+  check("undo brings the original pages back", (await pages()).join() === Array.from({ length: 12 }, (_, i) => `0:${i + 1}`).join(), (await pages()).join());
+  check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
+});
+
+await session(sample("long.pdf"), 9342, async (app) => {
+  await app.debugHandle();
+  check("a 300-page document lists every page", (await app.count(".thumb")) === 300);
+  const started = Date.now();
+  await app.evaluate(`document.querySelector(".thumb-list").scrollTop = 1e9`);
+  const drawn = await app.waitFor(`[...document.querySelectorAll(".thumb")].slice(-3).every((t) => t.querySelector("canvas"))`, 8000);
+  check("thumbnails far down draw quickly", drawn, `${Date.now() - started} ms`);
+  await app.clickOn(".thumb", 249);
+  check("jumps to page 250", await app.waitFor("window.__fpe.viewer.currentPage === 249", 5000));
+  check("only the pages near the view are kept drawn", (await app.count(".page canvas")) < 30);
+  check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
+});
+
 // ---- a flat form: blanks, editing text, and the saved file ------------------
 
 const saved = join(tmpdir(), "freepdfeditor-smoke-saved.pdf");

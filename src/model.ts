@@ -95,3 +95,16 @@ export function translate<T extends Item>(item: T, dx: number, dy: number): T {
   const boxed = item as Exclude<Item, LineItem>;
   return { ...boxed, x: boxed.x + dx, y: boxed.y + dy } as T;
 }
+
+/** One page of the document as the user has arranged it. */
+export interface PageRef {
+  /** Stays the same while pages move around. */
+  id: string;
+  /** Which PDF the page comes from (see Viewer.sources), and which of its pages. */
+  source: string;
+  index: number;
+  /** How far the user has turned it, clockwise: 0, 90, 180 or 270. */
+  rotation: number;
+  /** Set for an inserted empty page: its size in points. */
+  blank?: { width: number; height: number };
+}

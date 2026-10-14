@@ -180,7 +180,11 @@ export class Overlay {
       const el = this.rendered.get(item.id)?.el;
       const rect = el?.getBoundingClientRect();
       const scale = this.viewer.scale;
-      return { x: item.x, y: item.y, w: rect ? rect.width / scale : 0, h: rect ? rect.height / scale : item.size };
+      // On a page turned sideways the text's box is measured sideways too.
+      const turned = (this.viewer.pages[item.page]?.ref.rotation ?? 0) % 180 !== 0;
+      const w = rect ? (turned ? rect.height : rect.width) / scale : 0;
+      const h = rect ? (turned ? rect.width : rect.height) / scale : item.size;
+      return { x: item.x, y: item.y, w, h };
     }
     return { x: item.x, y: item.y, w: item.w, h: item.h };
   }

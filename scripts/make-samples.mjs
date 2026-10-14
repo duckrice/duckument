@@ -154,8 +154,21 @@ async function fonts() {
   writeFileSync(join(out, "fonts.pdf"), await doc.save());
 }
 
+// A long document, to check that the page sidebar stays quick.
+async function long() {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let n = 1; n <= 300; n++) {
+    const page = doc.addPage([595, 842]);
+    page.drawText(`Page ${n}`, { x: 220, y: 420, size: 60, font });
+    page.drawRectangle({ x: 40, y: 40, width: 515, height: 762, borderWidth: 2, borderColor: rgb(0.2, 0.3, 0.7) });
+  }
+  writeFileSync(join(out, "long.pdf"), await doc.save());
+}
+
 await form();
 await flat();
+await long();
 await letter();
 await fonts();
 console.log(`Wrote samples to ${out}`);

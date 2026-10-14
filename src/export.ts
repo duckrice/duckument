@@ -8,12 +8,14 @@ import {
   PDFFont,
   PDFImage,
   PDFOperator,
+  PDFName,
   PDFPage,
   StandardFonts,
   appendBezierCurve,
   beginText,
   closePath,
   concatTransformationMatrix,
+  degrees,
   drawObject,
   endText,
   fill,
@@ -34,7 +36,7 @@ import {
   stroke,
 } from "pdf-lib";
 import { fontDef, fontFile, type FontClass } from "./fonts";
-import { LINE_HEIGHT, type ImageItem, type Item, type TextItem } from "./model";
+import { LINE_HEIGHT, type ImageItem, type Item, type PageRef, type TextItem } from "./model";
 import { paints, type Paint } from "./shapes";
 
 export type Matrix = [number, number, number, number, number, number];
@@ -269,5 +271,81 @@ export async function addItemsToPdf(pdf: Uint8Array, items: Item[], env: ExportE
     list.push(item);
   }
   for (const [index, list] of byPage) await writer.write(pages[index], index, list);
+  return doc.save();
+}
+
+/** The PDF a set of pages comes from, with its filled-in form fields already written into it. */
+export type SourceBytes = Map<string, Uint8Array>;
+
+/**
+ * Builds the saved PDF: the pages as arranged (from the document's own PDF,
+ * other PDFs merged in, or blank), turned as the user turned them, with the
+ * items drawn on. The document's own PDF is the base, so its form fields,
+ * bookmarks and properties carry over.
+ *
+ * @param primary id of the document's own PDF in `sources`
+ */
+export async function assemblePdf(sources: SourceBytes, primary: string, pages: PageRef[], items: Item[], env: ExportEnv): Promise<Uint8Array> {
+  const base = sources.get(primary)!;
+  const doc = await PDFDocument.load(base, { ignoreEncryption: true, updateMetadata: false });
+  const originals = doc.getPages();
+  const unchanged = pages.length === originals.length && pages.every((page, i) => page.source === primary && page.index === i && !page.blank);
+  if (unchanged && !items.length && pages.every((page) => page.rotation === 0)) return base;
+  if (doc.isEncrypted) throw new EncryptedPdfError();
+
+  let finalPages: PDFPage[];
+  if (unchanged) {
+    finalPages = originals;
+  } else {
+    // Pages from other PDFs are copied in, one PDF at a time.
+    const copied = new Map<string, PDFPage>();
+    for (const [id, bytes] of sources) {
+      if (id === primary) continue;
+      const wanted = [...new Set(pages.filter((page) => page.source === id && !page.blank).map((page) => page.index))];
+      if (!wanted.length) continue;
+      const other = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+      if (other.isEncrypted) throw new EncryptedPdfError();
+      const pagesCopied = await doc.copyPages(other, wanted);
+      wanted.forEach((index, i) => copied.set(`${id}:${index}`, pagesCopied[i]));
+    }
+
+    finalPages = pages.map((page) => {
+      if (page.blank) {
+        const blank = PDFPage.create(doc);
+        blank.setSize(page.blank.width, page.blank.height);
+        return blank;
+      }
+      return page.source === primary ? originals[page.index] : copied.get(`${page.source}:${page.index}`)!;
+    });
+
+    // Form fields that only lived on deleted pages go too.
+    const kept = new Set(finalPages);
+    const removed = originals.filter((page) => !kept.has(page));
+    if (removed.length && doc.catalog.has(PDFName.of("AcroForm"))) {
+      const removedRefs = new Set(removed.map((page) => page.ref.toString()));
+      const form = doc.getForm();
+      for (const field of form.getFields()) {
+        const widgets = field.acroField.getWidgets();
+        if (widgets.length && widgets.every((widget) => removedRefs.has(String(widget.P())))) form.removeField(field);
+      }
+    }
+
+    for (let i = doc.getPageCount() - 1; i >= 0; i--) doc.removePage(i);
+    for (const page of finalPages) doc.addPage(page);
+  }
+
+  pages.forEach((page, i) => {
+    if (page.rotation) finalPages[i].setRotation(degrees((finalPages[i].getRotation().angle + page.rotation) % 360));
+  });
+
+  const writer = new Writer(doc, env);
+  const byPage = new Map<number, Item[]>();
+  for (const item of items) {
+    if (item.page < 0 || item.page >= finalPages.length) continue;
+    let list = byPage.get(item.page);
+    if (!list) byPage.set(item.page, (list = []));
+    list.push(item);
+  }
+  for (const [index, list] of byPage) await writer.write(finalPages[index], index, list);
   return doc.save();
 }

@@ -19,7 +19,7 @@ import {
   type OpenedFile,
 } from "./platform";
 import { addRecent, loadRecent, removeRecent } from "./recent";
-import { loadSettings } from "./settings";
+import { loadSettings, saveSettings } from "./settings";
 import { DocTab, type TabHooks } from "./tab";
 import { Toolbar } from "./toolbar";
 import { offerUpdate } from "./updates";
@@ -64,12 +64,19 @@ const welcome = h(
 );
 const toolbar = new Toolbar(nothingOpen, settings, {
   open: () => void openWithPicker(),
+  togglePages: () => {
+    settings.showPages = !settings.showPages;
+    saveSettings(settings);
+    documents.classList.toggle("no-sidebar", !settings.showPages);
+    toolbar.update();
+  },
   save: () => void active?.save(false),
   saveAs: () => void active?.save(true),
   insertImage: () => void active?.insertImage(),
   toast,
 });
 documents.append(welcome);
+documents.classList.toggle("no-sidebar", !settings.showPages);
 app.append(tabBar, toolbar.el, documents, toasts);
 void showRecent();
 updateTitle();
@@ -398,6 +405,13 @@ if (debug) {
         return tabs.map((tab) => ({ name: tab.name, path: tab.file?.path ?? null, dirty: tab.dirty, active: tab === active }));
       },
       build: () => active!.build(),
+      get tab() {
+        return active;
+      },
+      /** Merges a file the test supplies, as "Add PDF…" would after the file dialog. */
+      async addPdf(path: string, at: number) {
+        await active!.addPdfFile(await readPath(path), at);
+      },
       activate: (index: number) => activate(tabs[index]),
       /** Shows what saving would produce, in a new tab. */
       async showSaved() {

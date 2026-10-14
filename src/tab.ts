@@ -2,14 +2,17 @@
 // and saving it. Each tab in the window is one of these.
 
 import { h } from "./dom";
-import { EncryptedPdfError, addItemsToPdf } from "./export";
+import { EncryptedPdfError, assemblePdf, type ExportEnv, type SourceBytes } from "./export";
 import { Interaction, imageFromBlob } from "./interact";
+import type { PageRef } from "./model";
 import { Overlay } from "./overlay";
-import { baseName, isDesktop, pickImage, pickSavePath, readSystemFont, writePath, type OpenedFile } from "./platform";
+import { blankPage, deletePages, insertPages, itemsFor, movePages, pagesOf, rotatePages } from "./pageops";
+import { baseName, isDesktop, pickImage, pickPdf, pickSavePath, readSystemFont, writePath, type OpenedFile } from "./platform";
 import type { Settings } from "./settings";
 import { Store } from "./store";
 import { baseline, rasterizeText } from "./textmetrics";
-import { Viewer } from "./viewer";
+import { Thumbnails } from "./thumbnails";
+import { OpenCancelled, PRIMARY, Viewer } from "./viewer";
 
 export interface TabHooks {
   /** Something about the tab changed: its title, its unsaved state, or the view. */
@@ -28,24 +31,37 @@ interface FileInfo {
   savePath: string | null;
 }
 
+/** A4, for a blank page in a document that has no pages to copy the size from. */
+const A4 = { width: 595.28, height: 841.89 };
+
 export class DocTab {
-  /** The scrolling page area; only the active tab's is shown. */
-  readonly el = h("main", { class: "viewer" });
+  /** The tab's whole area: page sidebar and pages. Only the active tab's is shown. */
+  readonly el = h("div", { class: "doc" });
   readonly store = new Store();
   readonly viewer: Viewer;
   readonly overlay: Overlay;
   readonly interaction: Interaction;
+  readonly thumbnails: Thumbnails;
   file: FileInfo | null = null;
 
   private formsDirty = false;
   private blanksAnnounced = false;
+  /** The bytes of every PDF the pages come from, by source id. */
+  private sourceBytes = new Map<string, Uint8Array>();
+  private nextSource = 1;
+  /** The page arrangement the viewer is showing. */
+  private shownPages: PageRef[] = [];
 
   constructor(
     settings: Settings,
     private hooks: TabHooks,
   ) {
-    this.viewer = new Viewer(this.el, {
-      onView: () => hooks.changed(this),
+    const pagesArea = h("main", { class: "viewer" });
+    this.viewer = new Viewer(pagesArea, {
+      onView: () => {
+        this.thumbnails?.update();
+        hooks.changed(this);
+      },
       onFormEdit: () => {
         this.formsDirty = true;
         hooks.changed(this);
@@ -62,7 +78,18 @@ export class DocTab {
     });
     this.overlay = new Overlay(this.store, this.viewer);
     this.interaction = new Interaction(this.store, this.viewer, this.overlay, settings, () => hooks.changed(this));
-    this.store.subscribe(() => hooks.changed(this));
+    this.thumbnails = new Thumbnails(this);
+    this.el.append(this.thumbnails.el, pagesArea);
+    this.store.subscribe(() => {
+      // Page changes (and their undo) reach the viewer from here.
+      if (this.store.pages !== this.shownPages && this.viewer.pdf) {
+        this.shownPages = this.store.pages;
+        this.viewer.layout(this.store.pages);
+        this.overlay.sync();
+      }
+      this.thumbnails.update();
+      hooks.changed(this);
+    });
     this.active = false;
   }
 
@@ -82,9 +109,13 @@ export class DocTab {
 
   /** Loads a PDF into this tab. Throws if it can't be opened (OpenCancelled if the user gave up on a password). */
   async open(file: OpenedFile) {
-    await this.viewer.open(file.bytes);
+    const pdf = await this.viewer.load(file.bytes);
+    const pages = pagesOf(PRIMARY, pdf.numPages);
+    this.shownPages = pages;
+    await this.viewer.show(pdf, pages);
+    this.sourceBytes = new Map([[PRIMARY, file.bytes]]);
     this.overlay.clear();
-    this.store.reset();
+    this.store.reset(pages);
     this.interaction.setTool("select");
     this.file = { name: file.name, bytes: file.bytes, path: file.path, savePath: null };
     this.formsDirty = false;
@@ -96,17 +127,118 @@ export class DocTab {
     }, 600);
   }
 
-  /** The PDF as Save would write it. */
-  async build(): Promise<Uint8Array> {
-    const pdf = this.viewer.pdf!;
-    // pdf.js writes the filled-in form fields; everything added on top is drawn afterwards.
-    const base = pdf.annotationStorage.size > 0 ? await pdf.saveDocument() : this.file!.bytes;
-    return addItemsToPdf(base, this.store.items, {
+  // ---- pages --------------------------------------------------------------
+
+  private get state() {
+    return { items: this.store.items, pages: this.store.pages };
+  }
+
+  rotatePages(ids: string[], degrees: number) {
+    this.overlay.finishEdit();
+    this.store.apply(rotatePages(this.state, ids, degrees));
+  }
+
+  deletePages(ids: string[]) {
+    this.overlay.finishEdit();
+    if (ids.length >= this.store.pages.length) {
+      this.hooks.toast("A document needs at least one page.", "error");
+      return;
+    }
+    this.store.apply(deletePages(this.state, ids));
+  }
+
+  movePages(ids: string[], to: number) {
+    this.overlay.finishEdit();
+    this.store.apply(movePages(this.state, ids, to));
+  }
+
+  /** Adds an empty page at position `at`, the size of the page before it. */
+  insertBlankPage(at: number) {
+    const neighbour = this.viewer.pages[Math.max(0, at - 1)];
+    const size = neighbour ? { width: neighbour.width, height: neighbour.height } : A4;
+    this.store.apply(insertPages(this.state, at, [blankPage(size.width, size.height)]));
+  }
+
+  /** Asks for a PDF and puts its pages in at position `at`. */
+  async addPdf(at: number) {
+    let file: OpenedFile | null;
+    try {
+      file = await pickPdf();
+    } catch (error) {
+      this.hooks.toast(String(error), "error");
+      return;
+    }
+    if (file) await this.addPdfFile(file, at);
+  }
+
+  /** Puts the pages of an opened PDF file in at position `at`. */
+  async addPdfFile(file: OpenedFile, at: number) {
+    let pdf;
+    try {
+      pdf = await this.viewer.load(file.bytes);
+    } catch (error) {
+      if (!(error instanceof OpenCancelled)) this.hooks.toast(`"${file.name}" could not be opened. It may be damaged or not a PDF.`, "error");
+      return;
+    }
+    const id = String(this.nextSource++);
+    this.viewer.addSource(id, pdf);
+    this.sourceBytes.set(id, file.bytes);
+    this.store.apply(insertPages(this.state, at, pagesOf(id, pdf.numPages)));
+    this.hooks.toast(`Added ${pdf.numPages} ${pdf.numPages === 1 ? "page" : "pages"} from "${file.name}".`);
+  }
+
+  /** Saves the chosen pages, with what was added to them, as a new PDF. */
+  async extractPages(ids: string[]) {
+    if (!ids.length || !this.file) return;
+    this.overlay.finishEdit();
+    const chosen = this.store.pages.filter((page) => ids.includes(page.id));
+    const suggested = (this.file.path ?? this.file.name).replace(/(\.pdf)?$/i, chosen.length === 1 ? `-page.pdf` : "-pages.pdf");
+    try {
+      const path = await pickSavePath(suggested);
+      if (!path) return;
+      await writePath(path, await this.buildPages(ids));
+      this.hooks.toast(`Saved ${chosen.length} ${chosen.length === 1 ? "page" : "pages"} as ${baseName(path)}`);
+    } catch (error) {
+      console.error(error);
+      this.hooks.toast(error instanceof EncryptedPdfError ? error.message : `Could not save: ${String(error)}`, "error");
+    }
+  }
+
+  // ---- saving -------------------------------------------------------------
+
+  /** Every source PDF, with the form fields filled in on it written into it. */
+  private async sourcesWithForms(): Promise<SourceBytes> {
+    const out: SourceBytes = new Map();
+    for (const [id, bytes] of this.sourceBytes) {
+      const pdf = this.viewer.sources.get(id);
+      // pdf.js writes the filled-in form fields; everything else is done afterwards.
+      out.set(id, pdf && pdf.annotationStorage.size > 0 ? await pdf.saveDocument() : bytes);
+    }
+    return out;
+  }
+
+  private exportEnv(): ExportEnv {
+    return {
       pageTransform: (index) => this.viewer.pageTransform(index),
       baseline,
       rasterizeText,
       loadFont: isDesktop ? readSystemFont : undefined,
+    };
+  }
+
+  /** A PDF of just the given pages, with what was added to them. */
+  async buildPages(ids: string[]): Promise<Uint8Array> {
+    const chosen = this.store.pages.filter((page) => ids.includes(page.id));
+    const viewIndex = chosen.map((page) => this.store.pages.indexOf(page));
+    return assemblePdf(await this.sourcesWithForms(), PRIMARY, chosen, itemsFor(this.state, ids), {
+      ...this.exportEnv(),
+      pageTransform: (index) => this.viewer.pageTransform(viewIndex[index]),
     });
+  }
+
+  /** The PDF as Save would write it. */
+  async build(): Promise<Uint8Array> {
+    return assemblePdf(await this.sourcesWithForms(), PRIMARY, this.store.pages, this.store.items, this.exportEnv());
   }
 
   /** Saves the document. Resolves to true once it has been written. */
@@ -125,7 +257,7 @@ export class DocTab {
       if (this.file !== file) return true;
       file.savePath = path;
       this.formsDirty = false;
-      this.viewer.pdf.annotationStorage.resetModified();
+      for (const pdf of this.viewer.sources.values()) pdf.annotationStorage.resetModified();
       this.store.markSaved();
       this.hooks.toast(`Saved as ${baseName(path)}`);
       return true;
@@ -148,6 +280,7 @@ export class DocTab {
   close() {
     this.overlay.finishEdit();
     this.interaction.dispose();
+    this.thumbnails.dispose();
     this.viewer.close();
     this.el.remove();
   }

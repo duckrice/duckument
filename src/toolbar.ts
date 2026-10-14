@@ -14,6 +14,7 @@ import type { Viewer } from "./viewer";
 
 export interface Actions {
   open(): void;
+  togglePages(): void;
   save(): void;
   saveAs(): void;
   insertImage(): void;
@@ -82,6 +83,7 @@ export class Toolbar {
   private refreshProps: (() => void) | null = null;
   private signMenu: HTMLElement;
   private signButton: HTMLButtonElement;
+  private pagesButton: HTMLButtonElement;
 
   constructor(
     private target: ToolbarTarget,
@@ -92,6 +94,8 @@ export class Toolbar {
       h("button", { type: "button", class: `tb${label ? " labelled" : ""}`, title, onclick, html: icon(name) }, label);
 
     const openButton = button("open", "Open a PDF (Ctrl+O)", actions.open, "Open");
+    const pagesButton = button("pages", "Show or hide the page sidebar", actions.togglePages);
+    this.pagesButton = pagesButton;
     this.saveButton = button("save", "Save (Ctrl+S)", actions.save, "Save");
     this.undoButton = button("undo", "Undo (Ctrl+Z)", () => this.store.undo());
     this.redoButton = button("redo", "Redo (Ctrl+Y)", () => this.store.redo());
@@ -118,12 +122,12 @@ export class Toolbar {
 
     // select, text, edit text | sign | check, cross | shapes... | picture
     const [select, text, editText, check, cross, ...shapes] = tools;
-    this.docButtons = [this.saveButton, ...tools, this.signButton, imageButton, zoomOut, zoomIn, this.zoomLabel];
+    this.docButtons = [pagesButton, this.saveButton, ...tools, this.signButton, imageButton, zoomOut, zoomIn, this.zoomLabel];
 
     const main = h(
       "div",
       { class: "toolbar" },
-      h("div", { class: "group" }, openButton, this.saveButton),
+      h("div", { class: "group" }, pagesButton, openButton, this.saveButton),
       h("div", { class: "group" }, this.undoButton, this.redoButton),
       h("div", { class: "group" }, select, text, editText, h("div", { class: "menu-anchor" }, this.signButton, this.signMenu), check, cross),
       h("div", { class: "group" }, ...shapes, imageButton),
@@ -170,6 +174,7 @@ export class Toolbar {
     this.redoButton.disabled = !this.store.canRedo;
     for (const [tool, el] of this.toolButtons) el.classList.toggle("active", open && tool === this.interaction.tool);
     this.signButton.classList.toggle("active", this.interaction.tool === "place");
+    this.pagesButton.classList.toggle("active", open && this.settings.showPages);
     this.zoomLabel.textContent = `${Math.round(this.viewer.zoom * 100)}%`;
     this.pageLabel.textContent = open ? `Page ${this.viewer.currentPage + 1} of ${this.viewer.pages.length}` : "";
     this.updateProps(open);
