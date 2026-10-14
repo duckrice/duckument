@@ -129,6 +129,15 @@ function caretIndex(item: TextItem, x: number): number {
   return line.length;
 }
 
+/** Text selected in a page's text layer, if any. */
+function selectedText(): string {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed) return "";
+  const node = selection.anchorNode;
+  const el = node instanceof Element ? node : node?.parentElement;
+  return el?.closest(".textLayer") ? selection.toString() : "";
+}
+
 export class Interaction {
   tool: Tool = "select";
   /** Whether this document is the one on screen; only that one takes keyboard input. */
@@ -157,7 +166,10 @@ export class Interaction {
     // Clicks on the page must not steal focus from the text being typed;
     // real inputs (form fields, the text editor) keep their normal behaviour.
     root.addEventListener("mousedown", (event) => {
-      if (!isTyping(event.target) && this.viewer.pageFromElement(event.target as Element)) event.preventDefault();
+      const target = event.target as Element;
+      // In Select mode the document's own text can be selected.
+      if (this.tool === "select" && target.closest?.(".textLayer")) return;
+      if (!isTyping(event.target) && this.viewer.pageFromElement(target)) event.preventDefault();
     });
     window.addEventListener("keydown", this.keyListener);
     window.addEventListener("paste", this.pasteListener);
@@ -580,6 +592,7 @@ export class Interaction {
     if (event.ctrlKey || event.metaKey) {
       if (key === "z") event.shiftKey ? this.store.redo() : this.store.undo();
       else if (key === "y") this.store.redo();
+      else if (key === "c" && selectedText()) return; // the browser copies selected document text
       else if (key === "c" && selected) this.clipboard = selected;
       else if (key === "x" && selected) {
         this.clipboard = selected;

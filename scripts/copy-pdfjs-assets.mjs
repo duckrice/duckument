@@ -16,7 +16,8 @@ for (const dir of ["cmaps", "standard_fonts", "wasm", "iccs"]) {
 }
 
 const css = readFileSync(join(from, "web", "pdf_viewer.css"), "utf8");
-const start = css.indexOf("\n.annotationLayer {");
+// The text layer (for selecting text) comes right before the form layer.
+const start = css.indexOf("\n.textLayer {");
 const end = css.indexOf("\n:root {\n  --xfa-", start);
 if (start < 0 || end < 0) {
   throw new Error("pdf_viewer.css layout changed: cannot find the annotation layer styles");

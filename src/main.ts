@@ -20,6 +20,7 @@ import {
 } from "./platform";
 import { addRecent, loadRecent, removeRecent } from "./recent";
 import { loadSettings, saveSettings } from "./settings";
+import { SearchBar } from "./search";
 import { DocTab, type TabHooks } from "./tab";
 import { Toolbar } from "./toolbar";
 import { offerUpdate } from "./updates";
@@ -50,6 +51,7 @@ const app = document.getElementById("app")!;
 const tabBar = h("nav", { class: "tab-bar", hidden: true, "aria-label": "Open documents" });
 const documents = h("div", { class: "documents" });
 const toasts = h("div", { class: "toasts" });
+const search = new SearchBar();
 const recentList = h("div", { class: "recent" });
 const welcome = h(
   "div",
@@ -75,7 +77,7 @@ const toolbar = new Toolbar(nothingOpen, settings, {
   insertImage: () => void active?.insertImage(),
   toast,
 });
-documents.append(welcome);
+documents.append(welcome, search.el);
 documents.classList.toggle("no-sidebar", !settings.showPages);
 app.append(tabBar, toolbar.el, documents, toasts);
 void showRecent();
@@ -165,6 +167,8 @@ function activate(tab: DocTab | null) {
   active = tab;
   welcome.hidden = !!tab;
   toolbar.setTarget(tab ?? nothingOpen);
+  search.setViewer(tab?.viewer ?? null);
+  if (!tab) search.close();
   if (!tab) void showRecent();
   renderTabs();
   updateTitle();
@@ -330,7 +334,9 @@ window.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   if (event.ctrlKey || event.metaKey) {
     const viewer = active?.viewer;
-    if (key === "o") void openWithPicker();
+    if (key === "f") {
+      if (active) search.open();
+    } else if (key === "o") void openWithPicker();
     else if (key === "s") void active?.save(event.shiftKey);
     else if (key === "w") {
       if (active) void closeTab(active);
@@ -341,6 +347,9 @@ window.addEventListener("keydown", (event) => {
     else if (key === "-") viewer?.setZoom(viewer.zoom / 1.2);
     else if (key === "0") viewer?.zoomToFitWidth();
     else return;
+    event.preventDefault();
+  } else if (event.key === "F3" && search.isOpen) {
+    search.step(event.shiftKey ? -1 : 1);
     event.preventDefault();
   } else if (key === "s" && !event.altKey && !isTyping(event.target) && active) {
     toolbar.toggleSignMenu();

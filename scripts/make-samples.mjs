@@ -166,9 +166,29 @@ async function long() {
   writeFileSync(join(out, "long.pdf"), await doc.save());
 }
 
+// Fifty pages of text with known words to search for.
+async function search() {
+  const doc = await PDFDocument.create();
+  const dir = "C:/Windows/Fonts";
+  doc.registerFontkit(fontkit);
+  // A font with Norwegian letters; Helvetica has them too, as a fallback.
+  const font = existsSync(`${dir}/arial.ttf`) ? await doc.embedFont(readFileSync(`${dir}/arial.ttf`), { subset: true }) : await doc.embedFont(StandardFonts.Helvetica);
+  for (let n = 1; n <= 50; n++) {
+    const page = doc.addPage([595, 842]);
+    const lines = [`Page ${n} of the search sample`, "Lorem ipsum dolor sit amet, consectetur adipiscing elit."];
+    if ([3, 17].includes(n)) lines.push("There is a needle in this haystack.");
+    if (n === 42) lines.push("A needle here, and another needle there.");
+    if (n === 10) lines.push("Blåbærsyltetøy fra Ålesund");
+    if (n === 25) lines.push("Apply the delta", "wye transformation to the network.");
+    lines.forEach((line, i) => page.drawText(line, { x: 60, y: 760 - i * 22, size: 13, font }));
+  }
+  writeFileSync(join(out, "search.pdf"), await doc.save());
+}
+
 await form();
 await flat();
 await long();
+await search();
 await letter();
 await fonts();
 console.log(`Wrote samples to ${out}`);

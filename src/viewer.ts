@@ -9,6 +9,7 @@ import {
   GlobalWorkerOptions,
   PasswordResponses,
   RenderingCancelledException,
+  TextLayer,
   getDocument,
   type PDFDocumentProxy,
   type PDFPageProxy,
@@ -18,6 +19,7 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { detectBlanks, type Blank } from "./blanks";
 import { h } from "./dom";
 import type { Matrix } from "./export";
+import type { TextPiece } from "./findtext";
 import type { FontEvidence } from "./fontmatch";
 import type { Box, PageRef } from "./model";
 import { buildRuns, type TextRun } from "./textruns";
@@ -63,6 +65,12 @@ export interface PageView {
   el: HTMLElement;
   inner: HTMLElement;
   canvasWrap: HTMLElement;
+  /** Search matches. */
+  hits: HTMLElement;
+  /** Invisible copy of the page's text, for selecting and copying it. Null until the page is first drawn. */
+  textLayer: TextLayer | null;
+  /** The page's text, once read. */
+  text: TextPiece[] | null;
   /** Highlights for detected blanks and for editable text. */
   blanksEl: HTMLElement;
   runsEl: HTMLElement;
@@ -291,7 +299,8 @@ export class Viewer {
     const covers = h("div", { class: "covers" });
     const items = h("div", { class: "items" });
     const chrome = h("div", { class: "chrome" });
-    const overlay = h("div", { class: "overlay" }, blanksEl, runsEl, covers, items, chrome);
+    const hits = h("div", { class: "hits" });
+    const overlay = h("div", { class: "overlay" }, hits, blanksEl, runsEl, covers, items, chrome);
     const inner = h("div", { class: "page-inner" }, canvasWrap, overlay);
     const el = h("div", { class: "page" }, inner);
     const view: PageView = {
@@ -300,6 +309,9 @@ export class Viewer {
       el,
       inner,
       canvasWrap,
+      hits,
+      textLayer: null,
+      text: ref.blank ? [] : null,
       blanksEl,
       runsEl,
       covers,
@@ -558,6 +570,43 @@ export class Viewer {
       view.formsBuilt = true;
       await this.buildForms(view, page);
     }
+    if (!view.textLayer) await this.buildTextLayer(view, page);
+  }
+
+  /** Lays the page's text over it, invisibly, so it can be selected and copied. */
+  private async buildTextLayer(view: PageView, page: PDFPageProxy) {
+    const div = h("div", { class: "textLayer" });
+    // Under the form fields and everything added, over the picture of the page.
+    view.inner.insertBefore(div, view.canvasWrap.nextSibling);
+    const layer = new TextLayer({
+      textContentSource: page.streamTextContent({ includeMarkedContent: true, disableNormalization: true }),
+      container: div,
+      viewport: page.getViewport({ scale: 1 }),
+    });
+    view.textLayer = layer;
+    try {
+      await layer.render();
+    } catch (error) {
+      console.warn(`Could not lay out the text of page ${view.index + 1}`, error);
+      return;
+    }
+    // Lets search highlight what it found on this page.
+    this.container.dispatchEvent(new CustomEvent("textlayer", { detail: view }));
+  }
+
+  /** The text of a page, for searching. */
+  async pageText(index: number): Promise<TextPiece[]> {
+    const view = this.pages[index];
+    if (!view) return [];
+    if (!view.text) {
+      const page = await this.loadPage(view);
+      if (!page) return (view.text = []);
+      const content = await page.getTextContent({ disableNormalization: true });
+      view.text = content.items
+        .filter((item) => "str" in item)
+        .map((item) => ({ str: (item as { str: string }).str, eol: !!(item as { hasEOL?: boolean }).hasEOL }));
+    }
+    return view.text;
   }
 
   private async buildForms(view: PageView, page: PDFPageProxy) {

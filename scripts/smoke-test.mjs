@@ -507,6 +507,48 @@ await session(sample("long.pdf"), 9342, async (app) => {
   check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
 });
 
+// ---- search, select and copy -----------------------------------------------
+
+await session(sample("search.pdf"), 9343, async (app) => {
+  await app.debugHandle();
+  const find = async (text) => {
+    await app.key("f", 70, CTRL);
+    await app.evaluate(`(() => { const input = document.querySelector(".search-input"); input.value = ${JSON.stringify(text)}; input.dispatchEvent(new Event("input")); })()`);
+    await app.waitFor(`/of|Not found/.test(document.querySelector(".search-status").textContent)`, 15000);
+    return app.evaluate(`document.querySelector(".search-status").textContent`);
+  };
+  check("Ctrl+F finds every match in 50 pages", (await find("needle")) === "1 of 4", await app.evaluate(`document.querySelector(".search-status").textContent`));
+  check("and shows the first one", await app.waitFor("window.__fpe.viewer.currentPage === 2 && !!document.querySelector('.hit.current')", 5000));
+  await app.shoot("search");
+  await app.key("Enter", 13);
+  check("Enter goes to the next match", await app.waitFor("window.__fpe.viewer.currentPage === 16", 5000));
+  await app.key("Enter", 13);
+  await app.key("Enter", 13);
+  check("both matches on one page are found", await app.waitFor("window.__fpe.viewer.currentPage === 41 && document.querySelector('.search-status').textContent === '4 of 4'", 5000));
+  check("every match on the page is highlighted", (await app.evaluate(`document.querySelectorAll(".page")[41].querySelectorAll(".hit").length`)) === 2);
+  await app.key("Enter", 13);
+  check("it wraps around to the first", await app.waitFor("document.querySelector('.search-status').textContent === '1 of 4'", 3000));
+  await app.key("Enter", 13, 8);
+  check("Shift+Enter goes back", await app.waitFor("document.querySelector('.search-status').textContent === '4 of 4'", 3000));
+  check("finds Norwegian letters, whatever the case", (await find("BLÅBÆR")) === "1 of 1");
+  check("finds words across a line break", (await find("delta wye")) === "1 of 1");
+  check("says when nothing is found", (await find("unicorn")) === "Not found");
+  await app.key("Escape", 27);
+  check("Escape closes the search", await app.waitFor(`document.querySelector(".search-bar").hidden && !document.querySelector(".hit")`, 3000));
+
+  // Select the page's own text with the mouse and copy it.
+  await app.scrollTo(0);
+  await app.waitFor(`document.querySelectorAll(".page")[0].querySelector(".textLayer span")`, 8000);
+  const line = await app.evaluate(`(() => { const span = [...document.querySelectorAll(".page")[0].querySelectorAll(".textLayer span")].find((s) => s.textContent.startsWith("Lorem")); const r = span.getBoundingClientRect(); return [r.left + 2, r.top + r.height / 2, r.width]; })()`);
+  await app.drag(line[0], line[1], line[0] + line[2] * 0.45, line[1]);
+  const selected = await app.evaluate("window.getSelection().toString()");
+  check("dragging over the text selects it", selected.startsWith("Lorem ipsum"), selected);
+  await app.evaluate(`document.addEventListener("copy", () => { window.__copied = window.getSelection().toString(); }, { once: true })`);
+  await app.key("c", 67, CTRL);
+  check("Ctrl+C copies the selected text", (await app.evaluate("window.__copied")) === selected);
+  check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
+});
+
 // ---- a flat form: blanks, editing text, and the saved file ------------------
 
 const saved = join(tmpdir(), "freepdfeditor-smoke-saved.pdf");

@@ -1142,3 +1142,60 @@ select {
   background: var(--accent);
   pointer-events: none;
 }
+
+/* ---- search --------------------------------------------------------------- */
+
+.search-bar {
+  position: absolute;
+  top: 10px;
+  right: 28px;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.search-input {
+  width: 220px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.search-status {
+  min-width: 70px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.hits {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hit {
+  position: absolute;
+  border-radius: calc(1.5px / var(--s));
+  background: rgb(255 214 0 / 0.45);
+  mix-blend-mode: multiply;
+}
+
+.hit.current {
+  background: rgb(255 140 0 / 0.65);
+  outline: calc(1px / var(--s)) solid rgb(230 100 0);
+}
+
+/* The page's own text can be selected in Select mode only. */
+.viewer:not([data-tool="select"]) .textLayer {
+  pointer-events: none;
+}
