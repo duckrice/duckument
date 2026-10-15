@@ -467,34 +467,39 @@ function traceText(ops: Op[], resources: PDFDict | undefined, ctm: Matrix, forms
 const hexOf = (bytes: number[]) => "<" + bytes.map((b) => b.toString(16).padStart(2, "0")).join("") + ">";
 const fmt = (value: number) => String(Math.round(value * 10000) / 10000);
 
-/** The instruction rewritten without the removed letters, as a TJ with spacing in their place. */
+/**
+ * The instruction rewritten without the removed letters, as a TJ with spacing in
+ * their place. Neighbouring spacing is joined into one number: some readers
+ * (pdf.js among them) add the character spacing again for each number that
+ * doesn't follow a letter, which would shift the rest of the line.
+ */
 function rewrite(show: TextShow, removed: Set<Glyph>): string {
   const out: string[] = [];
   let kept: number[] = [];
-  let gap = 0;
+  let spacing = 0;
   const flushKept = () => {
     if (kept.length) out.push(hexOf(kept));
     kept = [];
   };
-  const flushGap = () => {
-    if (gap) out.push(fmt((-gap * 1000) / (show.fontSize * show.scaleX)));
-    gap = 0;
+  const flushSpacing = () => {
+    const value = fmt(spacing);
+    if (value !== "0" && value !== "-0") out.push(value);
+    spacing = 0;
   };
   for (const part of show.parts) {
     if (typeof part === "number") {
       flushKept();
-      flushGap();
-      out.push(fmt(part));
+      spacing += part;
     } else if (removed.has(part)) {
       flushKept();
-      gap += part.advance;
+      spacing -= (part.advance * 1000) / (show.fontSize * show.scaleX);
     } else {
-      flushGap();
+      flushSpacing();
       kept.push(...part.bytes);
     }
   }
   flushKept();
-  flushGap();
+  flushSpacing();
   const array = `[${out.join(" ")}] TJ`;
   const a = show.op.operands;
   if (show.op.op === "'") return `T* ${array}`;

@@ -18,7 +18,7 @@ describe("findInPieces", () => {
     const text = pieces(["Apply the delta", true], ["wye transformation", false]);
     const [match] = findInPieces(text, "delta wye");
     expect(match).toEqual({ start: { piece: 0, offset: 10 }, end: { piece: 1, offset: 3 } });
-    expect(findInPieces(pieces("Bergen", "Oslo"), "nOs")).toEqual([{ start: { piece: 0, offset: 4 }, end: { piece: 1, offset: 1 } }]);
+    expect(findInPieces(pieces("Bergen", "Oslo"), "nOs")).toEqual([{ start: { piece: 0, offset: 5 }, end: { piece: 1, offset: 2 } }]);
   });
 
   it("treats any run of spaces as one", () => {

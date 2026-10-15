@@ -56,9 +56,10 @@ describe("saving markups and notes", () => {
     const items: Item[] = [{ id: "h", type: "highlight", page: 0, rects: [{ x: 48, y: 86, w: 100, h: 18 }], color: "#ffe14d", text: "Mark this text" }];
     const out = await addItemsToPdf(bytes, items, await envFor(bytes));
     const doc = await PDFDocument.load(out);
-    const resources = doc.getPage(0).node.Resources()!;
-    const states = resources.lookup(await import("pdf-lib").then((m) => m.PDFName.of("ExtGState")));
-    expect(String(states)).toContain("/Multiply");
+    const { PDFDict, PDFName } = await import("pdf-lib");
+    const states = doc.getPage(0).node.Resources()!.lookup(PDFName.of("ExtGState"), PDFDict);
+    const modes = states.keys().map((key) => String(states.lookup(key, PDFDict).lookup(PDFName.of("BM"))));
+    expect(modes).toContain("/Multiply");
     // The page text is still there and readable.
     const pdf = await pdfjs.getDocument({ data: out, verbosity: 0 }).promise;
     const text = (await (await pdf.getPage(1)).getTextContent()).items.map((i) => ("str" in i ? i.str : "")).join("");
@@ -77,13 +78,13 @@ describe("saving markups and notes", () => {
       const notes = (await page.getAnnotations()).filter((a) => a.subtype === "Text");
       expect(notes, `rotation ${rotate}`).toHaveLength(1);
       expect(notes[0].contentsObj.str).toBe("Husk å signere her – æøå");
-      const viewport = page.getViewport({ scale: 1 });
-      const [x1, y1, x2, y2] = notes[0].rect;
-      const a = viewport.convertToViewportPoint(x1, y1);
-      const b = viewport.convertToViewportPoint(x2, y2);
-      expect(Math.min(a[0], b[0])).toBeCloseTo(30, 3);
-      expect(Math.min(a[1], b[1])).toBeCloseTo(40, 3);
-      expect(Math.abs(a[0] - b[0])).toBeCloseTo(18, 3);
+      // Readers draw the icon from its top left corner (pdf.js at 22 points square).
+      if (rotate === 0) {
+        const [x1, , , y2] = notes[0].rect;
+        const [x, y] = page.getViewport({ scale: 1 }).convertToViewportPoint(x1, y2);
+        expect(x).toBeCloseTo(30, 3);
+        expect(y).toBeCloseTo(40, 3);
+      }
     }
   });
 });

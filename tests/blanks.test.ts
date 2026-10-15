@@ -110,7 +110,8 @@ describe("detectBlanks", () => {
     const blanks = page.blanks();
     expect(blanks.map((b) => b.kind)).toEqual(["line", "line"]);
     expect(blanks[0].x).toBeCloseTo(90, 0);
-    expect(blanks[0].x + blanks[0].w).toBeCloseTo(299, 0);
+    // The last dot starts at 297 and is 1.2 wide.
+    expect(blanks[0].x + blanks[0].w).toBeCloseTo(298.2, 0);
     expect(blanks[0].y + blanks[0].h).toBeCloseTo(60, 0);
     expect(blanks[1].y + blanks[1].h).toBeCloseTo(120, 0);
   });
