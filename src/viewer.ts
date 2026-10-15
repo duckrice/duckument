@@ -147,6 +147,8 @@ export class Viewer {
           if (entry.isIntersecting) this.visible.add(view);
           else this.visible.delete(view);
         }
+        // After a jump the scroll handler runs before this list is up to date.
+        this.updateCurrentPage();
         this.scheduleRender(0);
       },
       { root: container, rootMargin: "60% 0px" },

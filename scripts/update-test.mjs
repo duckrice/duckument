@@ -156,7 +156,12 @@ async function connect(port, ms = 30000) {
 
 const launch = (exe, port) =>
   spawn(exe, [], {
-    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`, WEBVIEW2_USER_DATA_FOLDER: profile },
+    env: {
+      ...process.env,
+      DUCKUMENT_TEST_OFFSCREEN: "1",
+      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --disable-features=CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows --disable-renderer-backgrounding`,
+      WEBVIEW2_USER_DATA_FOLDER: profile,
+    },
     stdio: "ignore",
     detached: true,
   });

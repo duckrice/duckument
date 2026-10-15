@@ -6,6 +6,9 @@ import { fileURLToPath } from "node:url";
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, PDFHexString, StandardFonts, beginText, degrees, endText, rgb, setFontAndSize, setTextMatrix, showText } from "pdf-lib";
 
+// Ligatures would turn "ti" into one letter that pdf.js shows with a gap.
+const NO_LIGATURES = { features: { liga: false } };
+
 const out = join(dirname(fileURLToPath(import.meta.url)), "..", "samples");
 mkdirSync(out, { recursive: true });
 
@@ -73,8 +76,8 @@ async function letter() {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
   const has = existsSync(`${fonts}/calibri.ttf`);
-  const regular = has ? await doc.embedFont(readFileSync(`${fonts}/calibri.ttf`)) : await doc.embedFont(StandardFonts.Helvetica);
-  const bold = has ? await doc.embedFont(readFileSync(`${fonts}/calibrib.ttf`)) : await doc.embedFont(StandardFonts.HelveticaBold);
+  const regular = has ? await doc.embedFont(readFileSync(`${fonts}/calibri.ttf`), NO_LIGATURES) : await doc.embedFont(StandardFonts.Helvetica);
+  const bold = has ? await doc.embedFont(readFileSync(`${fonts}/calibrib.ttf`), NO_LIGATURES) : await doc.embedFont(StandardFonts.HelveticaBold);
   const page = doc.addPage([595, 842]);
   const black = rgb(0, 0, 0);
 
@@ -126,7 +129,7 @@ async function fonts() {
   const page = doc.addPage([595, 520]);
   let y = 480;
   const embedded = async (file, customName, lines) => {
-    const font = await doc.embedFont(readFileSync(`${dir}/${file}`), { subset: true, customName });
+    const font = await doc.embedFont(readFileSync(`${dir}/${file}`), { ...NO_LIGATURES, subset: true, customName });
     for (const line of lines) {
       page.drawText(line, { x: 40, y, size: 13, font });
       y -= 22;
@@ -172,7 +175,7 @@ async function search() {
   const dir = "C:/Windows/Fonts";
   doc.registerFontkit(fontkit);
   // A font with Norwegian letters; Helvetica has them too, as a fallback.
-  const font = existsSync(`${dir}/arial.ttf`) ? await doc.embedFont(readFileSync(`${dir}/arial.ttf`), { subset: true }) : await doc.embedFont(StandardFonts.Helvetica);
+  const font = existsSync(`${dir}/arial.ttf`) ? await doc.embedFont(readFileSync(`${dir}/arial.ttf`), { ...NO_LIGATURES, subset: true }) : await doc.embedFont(StandardFonts.Helvetica);
   for (let n = 1; n <= 50; n++) {
     const page = doc.addPage([595, 842]);
     const lines = [`Page ${n} of the search sample`, "Lorem ipsum dolor sit amet, consectetur adipiscing elit."];
@@ -210,8 +213,8 @@ async function paragraphs() {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
   const has = existsSync(`${dir}/times.ttf`);
-  const font = has ? await doc.embedFont(readFileSync(`${dir}/times.ttf`), { subset: true }) : await doc.embedFont(StandardFonts.TimesRoman);
-  const bold = has ? await doc.embedFont(readFileSync(`${dir}/timesbd.ttf`), { subset: true }) : await doc.embedFont(StandardFonts.TimesRomanBold);
+  const font = has ? await doc.embedFont(readFileSync(`${dir}/times.ttf`), { ...NO_LIGATURES, subset: true }) : await doc.embedFont(StandardFonts.TimesRoman);
+  const bold = has ? await doc.embedFont(readFileSync(`${dir}/timesbd.ttf`), { ...NO_LIGATURES, subset: true }) : await doc.embedFont(StandardFonts.TimesRomanBold);
   const page = doc.addPage([595, 842]);
   page.drawText("Workshop 4: Delta to wye transformation", { x: 60, y: 760, size: 18, font: bold });
   const text =

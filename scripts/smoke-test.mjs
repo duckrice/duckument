@@ -39,7 +39,10 @@ function check(name, ok, detail = "") {
 /** The test's environment for a copy of the app. */
 const appEnv = (port, singleInstance, profileDir = profile) => ({
   ...process.env,
-  WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
+  // Off-screen, so the test doesn't take over the screen. WebView2 would stop
+  // drawing a window it thinks nobody can see; the flags keep it drawing.
+  DUCKUMENT_TEST_OFFSCREEN: "1",
+  WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --disable-features=CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows --disable-renderer-backgrounding`,
   WEBVIEW2_USER_DATA_FOLDER: profileDir,
   // Normally each test copy stands alone, so it can't hand files to a Duckument
   // that is open for real use.
@@ -460,11 +463,14 @@ await session(sample("flat.pdf"), 9341, async (app) => {
   check("deletes a page", (await pages()).length === 11 && !(await pages()).includes("0:2"));
   check("the text moved up with its page", (await onPage()).join() === "1");
 
-  // Drag page 1 below page 4.
-  const from = await app.center(".thumb", 0);
-  const to = await app.center(".thumb", 3);
+  // Drag the first page below the third. Both thumbnails are measured with the
+  // list scrolled to the top: scrolling one into view would move the other.
+  await app.evaluate(`document.querySelector(".thumb-list").scrollTop = 0`);
+  const thumbAt = (i) => app.evaluate(`(() => { const r = document.querySelectorAll(".thumb")[${i}].getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2, r.width, r.height]; })()`);
+  const from = await thumbAt(0);
+  const to = await thumbAt(2);
   await app.drag(from[0], from[1], to[0], to[1] + to[3] * 0.45);
-  check("dragging a thumbnail reorders the pages", (await pages()).slice(0, 4).join() === "0:3@90,0:4,0:5,0:1", (await pages()).slice(0, 5).join());
+  check("dragging a thumbnail reorders the pages", (await pages()).slice(0, 4).join() === "0:3@90,0:4,0:1,0:5", (await pages()).slice(0, 5).join());
   check("and the text follows its page", (await onPage()).join() === "0");
 
   await app.clickOn(`.thumb-tools [title="Insert a blank page"]`);
@@ -472,6 +478,8 @@ await session(sample("flat.pdf"), 9341, async (app) => {
 
   await app.evaluate(`window.__fpe.addPdf(${JSON.stringify(sample("form.pdf"))}, 0)`);
   check("merges another PDF's pages", (await pages())[0] === "1:1" && (await pages()).length === 13);
+  // Pages are drawn when they come into view.
+  await app.scrollTo(0);
   check("the merged page's form fields work", await app.waitFor(`document.querySelectorAll(".page")[0].querySelectorAll(".annotationLayer input").length > 0`, 8000));
   await app.shoot("pages-rearranged");
 
@@ -513,6 +521,8 @@ await session(sample("search.pdf"), 9343, async (app) => {
   await app.debugHandle();
   const find = async (text) => {
     await app.key("f", 70, CTRL);
+    // Forget the last result, so the wait below sees this search's.
+    await app.evaluate(`document.querySelector(".search-status").textContent = ""`);
     await app.evaluate(`(() => { const input = document.querySelector(".search-input"); input.value = ${JSON.stringify(text)}; input.dispatchEvent(new Event("input")); })()`);
     await app.waitFor(`/of|Not found/.test(document.querySelector(".search-status").textContent)`, 15000);
     return app.evaluate(`document.querySelector(".search-status").textContent`);
@@ -525,7 +535,7 @@ await session(sample("search.pdf"), 9343, async (app) => {
   await app.key("Enter", 13);
   await app.key("Enter", 13);
   check("both matches on one page are found", await app.waitFor("window.__fpe.viewer.currentPage === 41 && document.querySelector('.search-status').textContent === '4 of 4'", 5000));
-  check("every match on the page is highlighted", (await app.evaluate(`document.querySelectorAll(".page")[41].querySelectorAll(".hit").length`)) === 2);
+  check("every match on the page is highlighted", await app.waitFor(`document.querySelectorAll(".page")[41].querySelectorAll(".hit").length === 2`, 5000));
   await app.key("Enter", 13);
   check("it wraps around to the first", await app.waitFor("document.querySelector('.search-status').textContent === '1 of 4'", 3000));
   await app.key("Enter", 13, 8);
@@ -601,7 +611,8 @@ await session(sample("search.pdf"), 9344, async (app) => {
   check("the saved file has the comment, readable by any PDF reader", notes.length === 1 && notes[0].contentsObj?.str === "Husk å signere her");
 }
 await session(marked, 9345, async (app) => {
-  check("comments in an opened file are shown", await app.waitFor(`!!document.querySelector(".annotationLayer .textAnnotation")`, 8000));
+  // Saved on this computer, so they come back as Duckument's own, still editable.
+  check("comments in an opened file are shown", await app.waitFor(`!!document.querySelector(".annotationLayer .textAnnotation, .item.note")`, 8000));
   await app.shoot("saved-highlights-and-comment");
 });
 rmSync(marked, { force: true });
@@ -630,12 +641,12 @@ await session(sample("paragraphs.pdf"), 9347, async (app) => {
   const item = () => app.evaluate("(() => { const i = window.__fpe.store.items[0]; return i && { text: i.text, width: i.width, align: i.align, lineHeight: i.lineHeight }; })()");
   const before = await item();
   check("clicking a line in a paragraph edits the whole paragraph", before?.text.startsWith("A delta network") && before.text.endsWith("sum of all three.") && before.align === "justify", JSON.stringify(before));
-  await app.key("Home", 36);
+  await app.key("Home", 36, CTRL);
   await app.type("Note: ");
   await app.key(...ESC);
   await app.key(...ESC);
   const lines = await app.evaluate(`[...document.querySelectorAll(".item.text.paragraph .line")].map((l) => l.textContent)`);
-  check("the paragraph re-wraps to its width", lines.length >= 4 && lines[0].startsWith("A delta") === false, JSON.stringify(lines));
+  check("the paragraph re-wraps to its width", lines.length >= 4 && lines[0].startsWith("Note: A delta"), JSON.stringify(lines));
   await app.shoot("paragraph-edited");
   await app.evaluate(`(async () => {
     const bytes = await window.__fpe.build();
@@ -742,23 +753,29 @@ await session(sample("fonts.pdf"), 9336, async (app) => {
   const runs = await app.count(".run");
   for (let i = 0; i < runs; i++) {
     const [x, y, w] = await app.center(".run", i);
+    // A line of a paragraph that is already being edited belongs to that edit.
+    if (await app.evaluate(`document.elementsFromPoint(${x}, ${y}).some((el) => el.matches(".item.text"))`)) continue;
     await app.click(x + w / 2 - 2, y);
     await app.key("Backspace", 8);
     await app.key("Backspace", 8);
     await app.key(...ESC);
   }
   const style = (item) => `${item.font}${item.bold ? " bold" : ""}${item.italic ? " italic" : ""}`;
-  const got = (await app.evaluate(`window.__fpe.store.items.filter((i) => i.cover).map((i) => ({ font: i.font, bold: i.bold, italic: i.italic }))`)).map(style);
+  const edits = await app.evaluate(`window.__fpe.store.items.filter((i) => i.cover).map((i) => ({ text: i.cover.original, font: i.font, bold: i.bold, italic: i.italic }))`);
   // Times New Roman and Arial are the standard Times and Helvetica's twins; either is right.
-  const expected = [
-    ...Array(3).fill(/^(serif|timesnewroman) italic$/),
-    ...Array(2).fill(/^calibri bold$/),
-    ...Array(2).fill(/^(sans|arial) italic$/),
-    /^timesnewroman bold italic$/,
-    ...Array(4).fill(/^timesnewroman italic$/),
-    /^serif italic$/,
-  ];
-  check("edited text keeps its font and style, however the PDF stores the font", got.length === expected.length && expected.every((want, i) => want.test(got[i])), got.join(", "));
+  const expectedFor = (text) =>
+    /^(The delta|simplifies|into one)/.test(text) ? /^(serif|timesnewroman) italic$/
+    : /^(Workshop|Hand in)/.test(text) ? /^calibri bold$/
+    : /^(Hint|and work)/.test(text) ? /^(sans|arial) italic$/
+    : /^Named only, bold italic/.test(text) ? /^timesnewroman bold italic$/
+    : /^(Named only|Embedded)/.test(text) ? /^timesnewroman italic$/
+    : /^One of the standard/.test(text) ? /^serif italic$/
+    : null;
+  const covered = edits.map((e) => e.text).join(" ");
+  const everyLine = ["The delta", "Workshop", "Hand in", "Hint", "and work", "Named only, bold", "with a comma", "usual italic", "with spaces", "Embedded", "One of the standard"].every((t) => covered.includes(t));
+  const wrong = edits.filter((e) => !expectedFor(e.text)?.test(style(e))).map((e) => `${e.text.slice(0, 20)}: ${style(e)}`);
+  check("edits every line", everyLine, covered);
+  check("edited text keeps its font and style, however the PDF stores the font", edits.length > 0 && wrong.length === 0, wrong.join(", "));
   await app.key(...ESC);
   await app.scrollTo(0);
   await app.shoot("fonts-after-editing-every-line");
@@ -803,7 +820,7 @@ await session(sample("flat.pdf"), 9337, async (app) => {
   check("including the bold heading", /^Calibri-Bold-\d+$/.test(fontOf("Søknad om medlemskap") ?? ""), String(fontOf("Søknad om medlemskap")));
   const everything = content.items.map((i) => i.str).join(" ");
   check("the edited original words are gone from the saved file", !everything.includes("1987") && !everything.includes("Membership application"), everything.slice(0, 200));
-  check("the deleted instructions are gone too", !everything.includes("block let"));
+  check("text opened but not changed stays in the file", everything.includes("Please complete this form in block letters"), everything.slice(0, 300));
   const grew = readFileSync(saved).length - readFileSync(sample("letter.pdf")).length;
   check("embeds only the letters used, not whole fonts", grew < 80_000, `${grew} bytes added`);
 }

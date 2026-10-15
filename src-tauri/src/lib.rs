@@ -104,6 +104,21 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .setup(|app| {
+            let config = &app.config().app.windows[0];
+            let builder = tauri::WebviewWindowBuilder::from_config(app.handle(), config)?;
+            // Tests open the window off-screen and in the background, so they
+            // can run without taking over the screen. A window can't be created
+            // off-screen, so it's created hidden, moved, then shown without focus.
+            if std::env::var_os("DUCKUMENT_TEST_OFFSCREEN").is_some() {
+                let window = builder.visible(false).focused(false).skip_taskbar(true).build()?;
+                window.set_position(tauri::PhysicalPosition::new(-20000, -20000))?;
+                window.show()?;
+            } else {
+                builder.build()?;
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             startup_files,
             existing_files,

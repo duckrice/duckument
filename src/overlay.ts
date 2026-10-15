@@ -302,8 +302,13 @@ export class Overlay {
       return;
     }
     if (this.notePopup.parentNode !== chrome) chrome.append(this.notePopup);
-    this.notePopup.style.left = `${note.x + NOTE_SIZE + 6}px`;
-    this.notePopup.style.top = `${note.y}px`;
+    // Beside the icon, on whichever side keeps it on the page.
+    const view = this.viewer.pages[note.page];
+    const { offsetWidth: w, offsetHeight: h } = this.notePopup;
+    const right = note.x + NOTE_SIZE + 6;
+    const left = right + w > view.width ? Math.max(0, note.x - 6 - w) : right;
+    this.notePopup.style.left = `${left}px`;
+    this.notePopup.style.top = `${Math.max(0, Math.min(note.y, view.height - h))}px`;
     this.notePopup.style.borderColor = note.color;
     if (document.activeElement !== this.noteText) this.noteText.value = note.text;
   }
