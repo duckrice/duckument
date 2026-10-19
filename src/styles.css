@@ -1,32 +1,33 @@
+/* The duckware look, shared with DuckWriter: teal, and calm greys. */
 :root {
   color-scheme: light dark;
   --panel: #ffffff;
-  --panel-2: #f4f5f7;
-  --border: #d9dce1;
-  --text: #1d2026;
-  --muted: #667085;
-  --hover: #eceef2;
-  --accent: #2563eb;
-  --accent-soft: #dbe7ff;
-  --accent-text: #1d4ed8;
-  --viewer: #e6e8ec;
-  --shadow: 0 8px 30px rgb(0 0 0 / 0.18);
+  --panel-2: #f3f4f6;
+  --border: #d9dde3;
+  --text: #1f2933;
+  --muted: #65707d;
+  --hover: #eef1f4;
+  --accent: #0f766e;
+  --accent-soft: #d5f0ec;
+  --accent-text: #0b5f58;
+  --viewer: #e6e8eb;
+  --shadow: 0 1px 3px rgb(0 0 0 / 0.12), 0 4px 16px rgb(0 0 0 / 0.08);
   font: 13px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --panel: #26282c;
-    --panel-2: #1f2124;
-    --border: #3b3e44;
-    --text: #e8eaed;
-    --muted: #9aa1ac;
-    --hover: #34373c;
-    --accent: #5b8def;
-    --accent-soft: #2c3f66;
-    --accent-text: #a9c4ff;
-    --viewer: #17181a;
-    --shadow: 0 8px 30px rgb(0 0 0 / 0.5);
+    --panel: #262b31;
+    --panel-2: #1f2328;
+    --border: #3a4048;
+    --text: #e6e9ed;
+    --muted: #9aa4af;
+    --hover: #323840;
+    --accent: #2dd4bf;
+    --accent-soft: #1d4743;
+    --accent-text: #99f6e4;
+    --viewer: #15181c;
+    --shadow: 0 1px 3px rgb(0 0 0 / 0.4), 0 6px 20px rgb(0 0 0 / 0.35);
   }
 }
 
@@ -362,12 +363,12 @@ select {
 
 .btn.primary {
   border-color: transparent;
-  background: #2563eb;
+  background: var(--accent);
   color: #fff;
 }
 
 .btn.primary:hover {
-  background: #1d4ed8;
+  background: var(--accent-text);
 }
 
 .btn.large {
@@ -461,7 +462,7 @@ select {
 
 .sig-pad {
   /* A faint line to sign on; it is not part of the signature. */
-  background: linear-gradient(#c9ced6, #c9ced6) no-repeat 5% 76% / 90% 1px #fff;
+  background: linear-gradient(#c9cfd6, #c9cfd6) no-repeat 5% 76% / 90% 1px #fff;
   cursor: crosshair;
   touch-action: none;
 }
@@ -470,8 +471,8 @@ select {
   display: grid;
   place-items: center;
   padding: 10px;
-  background: repeating-conic-gradient(#fff 0 25%, #eceef2 0 50%) 0 0 / 16px 16px;
-  color: #667085;
+  background: repeating-conic-gradient(#fff 0 25%, #eef1f4 0 50%) 0 0 / 16px 16px;
+  color: #65707d;
   text-align: center;
 }
 
@@ -583,7 +584,7 @@ select {
   max-width: 80vw;
   padding: 9px 16px;
   border-radius: 9px;
-  background: #23262b;
+  background: #22282e;
   color: #fff;
   box-shadow: var(--shadow);
 }
@@ -865,8 +866,8 @@ select {
 }
 
 .blank {
-  background: rgb(37 99 235 / 0.1);
-  outline: calc(1px / var(--s)) dashed rgb(37 99 235 / 0.5);
+  background: rgb(15 118 110 / 0.1);
+  outline: calc(1px / var(--s)) dashed rgb(15 118 110 / 0.5);
 }
 
 .viewer[data-tool="text"] .blank,
@@ -879,7 +880,7 @@ select {
 }
 
 .blank:hover {
-  background: rgb(37 99 235 / 0.22);
+  background: rgb(15 118 110 / 0.22);
 }
 
 .viewer[data-tool="edit"] .overlay {
@@ -892,7 +893,7 @@ select {
 }
 
 .run:hover {
-  background: rgb(37 99 235 / 0.12);
+  background: rgb(15 118 110 / 0.12);
   outline: calc(1px / var(--s)) solid var(--accent);
 }
 
