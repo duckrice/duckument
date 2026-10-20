@@ -65,10 +65,12 @@ export async function pickImage(): Promise<Blob | null> {
 }
 
 /** Asks where to save; returns null if cancelled. In the browser there is nothing to ask. */
-export async function pickSavePath(suggested: string): Promise<string | null> {
+export async function pickSavePath(suggested: string, filters = PDF_FILTER): Promise<string | null> {
   if (!isDesktop) return suggested;
-  return save({ defaultPath: suggested, filters: PDF_FILTER });
+  return save({ defaultPath: suggested, filters });
 }
+
+export const WORD_FILTER = [{ name: "Word document", extensions: ["docx"] }];
 
 export async function writePath(path: string, bytes: Uint8Array): Promise<void> {
   if (isDesktop) {

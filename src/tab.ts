@@ -8,7 +8,8 @@ import { Interaction, imageFromBlob } from "./interact";
 import type { PageRef } from "./model";
 import { Overlay } from "./overlay";
 import { blankPage, deletePages, insertPages, itemsFor, movePages, pagesOf, rotatePages } from "./pageops";
-import { baseName, isDesktop, pickImage, pickPdf, pickSavePath, readSystemFont, writePath, type OpenedFile } from "./platform";
+import { WORD_FILTER, baseName, isDesktop, pickImage, pickPdf, pickSavePath, readSystemFont, writePath, type OpenedFile } from "./platform";
+import { pdfToDocx } from "./pdfword";
 import type { Settings } from "./settings";
 import { Store } from "./store";
 import { baseline, measureWidth, rasterizeText } from "./textmetrics";
@@ -279,6 +280,43 @@ export class DocTab {
       console.error(error);
       this.hooks.toast(error instanceof EncryptedPdfError ? error.message : `Could not save: ${String(error)}`, "error");
       return false;
+    }
+  }
+
+  /** Saves a Word document (.docx) worked out from the PDF, with what was added to it. */
+  async saveAsWord(): Promise<boolean> {
+    const file = this.file;
+    if (!file || !this.viewer.pdf) return false;
+    this.overlay.finishEdit();
+    try {
+      const path = await pickSavePath((file.path ?? file.name).replace(/(\.pdf)?$/i, ".docx"), WORD_FILTER);
+      if (!path) return false;
+      this.hooks.toast("Making the Word document…");
+      await writePath(path, await this.wordDocument());
+      this.hooks.toast(`Saved as ${baseName(path)}`);
+      return true;
+    } catch (error) {
+      console.error(error);
+      this.hooks.toast(`Could not make the Word document: ${String(error)}`, "error");
+      return false;
+    }
+  }
+
+  /** The .docx Save as Word writes: the PDF with what was added to it, worked out into a document. */
+  async wordDocument(): Promise<Uint8Array> {
+    // A PDF with a password can't be written, so then it's the PDF as opened, without the additions.
+    let pdf = this.viewer.pdf!;
+    let own = false;
+    try {
+      pdf = await this.viewer.load(await this.build());
+      own = true;
+    } catch (error) {
+      if (!(error instanceof EncryptedPdfError)) throw error;
+    }
+    try {
+      return await pdfToDocx(pdf);
+    } finally {
+      if (own) void pdf.loadingTask.destroy();
     }
   }
 

@@ -1,4 +1,4 @@
-Duckument is a free Windows app for signing PDFs, filling in forms, adding text and shapes, and editing the text in a document.
+Duckument is a free Windows app for signing PDFs, filling in forms, adding text and shapes, editing the text in a document, and turning a PDF into a Word document (.docx) to edit in Word or DuckWriter.
 
 ## Install
 

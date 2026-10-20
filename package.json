@@ -22,12 +22,14 @@
     "@tauri-apps/plugin-dialog": "^2",
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.13.3",
+    "docx": "^9.13.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.4.299"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
     "@types/node": "^24",
+    "jszip": "^3.10.2",
     "typescript": "~6.0.3",
     "vite": "^8.0.16",
     "vitest": "^4"

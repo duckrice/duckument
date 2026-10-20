@@ -74,6 +74,7 @@ const toolbar = new Toolbar(nothingOpen, settings, {
   },
   save: () => void active?.save(false),
   saveAs: () => void active?.save(true),
+  saveAsWord: () => void active?.saveAsWord(),
   insertImage: () => void active?.insertImage(),
   toast,
 });

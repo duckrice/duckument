@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
+import JSZip from "jszip";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const exe = join(root, "src-tauri", "target", "release", "duckument.exe");
@@ -873,6 +874,38 @@ await session(sample("links.pdf"), 9350, async (app) => {
   const opened = () => app.ipc.filter((request) => request.method === "POST" && request.url.endsWith("/open_url")).map((request) => request.postData);
   for (let i = 0; i < 30 && !opened().length; i++) await sleep(100);
   check("clicking a linked picture opens its web page", opened().length === 1 && JSON.parse(opened()[0]).url === "https://example.com/duck", JSON.stringify(opened()));
+  check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
+});
+
+// Save as Word: the PDF worked out into a Word document.
+/** The paragraphs of a .docx (its style and words), and its parts. */
+async function wordParts(base64) {
+  const zip = await JSZip.loadAsync(Buffer.from(base64, "base64"));
+  const xml = await zip.file("word/document.xml").async("string");
+  const rels = (await zip.file("word/_rels/document.xml.rels")?.async("string")) ?? "";
+  const paras = [...xml.matchAll(/<w:p[ >][\s\S]*?<\/w:p>/g)].map(([p]) => ({
+    style: /<w:pStyle w:val="([^"]+)"/.exec(p)?.[1] ?? "",
+    text: [...p.matchAll(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>/g)].map((t) => t[1]).join(""),
+  }));
+  return { paras, rels, files: Object.keys(zip.files) };
+}
+const wordOf = (app) => app.evaluate(`(async () => { const bytes = await window.__fpe.tab.wordDocument(); let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); })()`);
+
+await session(sample("paragraphs.pdf"), 9351, async (app) => {
+  await app.debugHandle();
+  const { paras } = await wordParts(await wordOf(app));
+  const heading = paras.find((p) => p.text.startsWith("Workshop 4"));
+  check("Save as Word keeps the heading as a heading", heading?.style === "Heading1", JSON.stringify(heading));
+  check("and joins each paragraph's lines into one", paras.some((p) => p.text.includes("simplify circuits that contain neither series nor parallel connections")), paras.map((p) => p.text.slice(0, 50)).join(" | "));
+  check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
+});
+
+await session(sample("links.pdf"), 9352, async (app) => {
+  await app.debugHandle();
+  const { paras, rels, files } = await wordParts(await wordOf(app));
+  check("Save as Word keeps links", rels.includes("mailto:duck@example.com"), rels);
+  check("and pictures", files.some((f) => /^word\/media\/.+\.png$/.test(f)), files.join(", "));
+  check("and the words", paras.some((p) => p.text.includes("Write to us")));
   check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
 });
 
