@@ -1196,6 +1196,11 @@ select {
   outline: calc(1px / var(--s)) solid rgb(230 100 0);
 }
 
+/* Links work with the Select tool; with another tool a click places, draws or signs. */
+.viewer:not([data-tool="select"]) .annotationLayer .linkAnnotation {
+  pointer-events: none;
+}
+
 /* The page's own text can be selected in Select and Highlight mode only. */
 .viewer:not([data-tool="select"]):not([data-tool="markup"]) .textLayer {
   pointer-events: none;

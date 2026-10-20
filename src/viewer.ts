@@ -16,6 +16,7 @@ import {
   type RenderTask,
 } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { invoke } from "@tauri-apps/api/core";
 import { detectBlanks, type Blank } from "./blanks";
 import { h } from "./dom";
 import type { Matrix } from "./export";
@@ -46,12 +47,20 @@ export type Assist = "blanks" | "runs" | null;
 
 const asset = (dir: string) => new URL(`pdfjs/${dir}/`, document.baseURI).href;
 
-// Form fields only need the link service to exist; links themselves aren't shown.
+// Form fields only need the link service to exist; web and e-mail links open outside the app.
 const linkService = {
   eventBus: undefined,
   getDestinationHash: () => "#",
   getAnchorUrl: () => "#",
-  addLinkAttributes() {},
+  /** A link to a web page or an e-mail address: opened in the browser or mail program. */
+  addLinkAttributes(link: HTMLAnchorElement, url: string) {
+    link.href = url;
+    link.title = url;
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      void invoke("open_url", { url }).catch((error) => console.warn("Could not open the link", error));
+    });
+  },
   executeNamedAction() {},
   executeSetOCGState() {},
   goToDestination() {},
@@ -620,9 +629,9 @@ export class Viewer {
   }
 
   private async buildForms(view: PageView, page: PDFPageProxy) {
-    // Form fields, and comments (sticky notes) with their pop-ups.
+    // Form fields, comments (sticky notes) with their pop-ups, and links.
     const annotations = (await page.getAnnotations({ intent: "display" })).filter((annotation) =>
-      ["Widget", "Text", "Popup"].includes(annotation.subtype),
+      ["Widget", "Text", "Popup", "Link"].includes(annotation.subtype),
     );
     const source = this.sources.get(view.ref.source);
     if (!annotations.length || !source || view.pdfPage !== page) return;

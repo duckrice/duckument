@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import fontkit from "@pdf-lib/fontkit";
-import { PDFDocument, PDFHexString, StandardFonts, beginText, degrees, endText, rgb, setFontAndSize, setTextMatrix, showText } from "pdf-lib";
+import { PDFDocument, PDFHexString, PDFName, PDFString, StandardFonts, beginText, degrees, endText, rgb, setFontAndSize, setTextMatrix, showText } from "pdf-lib";
 
 // Ligatures would turn "ti" into one letter that pdf.js shows with a gap.
 const NO_LIGATURES = { features: { liga: false } };
@@ -254,8 +254,26 @@ async function paragraphs() {
   writeFileSync(join(out, "paragraphs.pdf"), await doc.save());
 }
 
+/** A picture that links to a web page, and a text link to an e-mail address. */
+async function links() {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([595, 842]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const picture = await doc.embedPng(readFileSync(join(out, "..", "src-tauri", "icons", "128x128.png")));
+  page.drawImage(picture, { x: 60, y: 600, width: 128, height: 128 });
+  page.drawText("Write to us", { x: 60, y: 560, size: 14, font });
+  const link = (rect, action) =>
+    doc.context.register(doc.context.obj({ Type: "Annot", Subtype: "Link", Rect: rect, Border: [0, 0, 0], A: action }));
+  page.node.set(PDFName.of("Annots"), doc.context.obj([
+    link([60, 600, 188, 728], { S: "URI", URI: PDFString.of("https://example.com/duck") }),
+    link([60, 555, 140, 575], { S: "URI", URI: PDFString.of("mailto:duck@example.com") }),
+  ]));
+  writeFileSync(join(out, "links.pdf"), await doc.save());
+}
+
 await form();
 await flat();
+await links();
 await long();
 await search();
 await dotted();

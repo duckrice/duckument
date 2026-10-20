@@ -87,11 +87,15 @@ async function session(files, port, run, { singleInstance = false, profileDir = 
   let nextId = 1;
   const pending = new Map();
   const errors = [];
+  // Calls into the Rust side (Tauri sends them as requests to ipc.localhost).
+  const ipc = [];
   ws.onmessage = (event) => {
     const msg = JSON.parse(event.data);
     if (msg.id && pending.has(msg.id)) {
       pending.get(msg.id)(msg);
       pending.delete(msg.id);
+    } else if (msg.method === "Network.requestWillBeSent" && msg.params.request.url.includes("ipc.localhost")) {
+      ipc.push(msg.params.request);
     } else if (msg.method === "Runtime.exceptionThrown") {
       const details = msg.params.exceptionDetails;
       errors.push(details.exception?.description ?? details.text);
@@ -110,6 +114,7 @@ async function session(files, port, run, { singleInstance = false, profileDir = 
 
   const app = {
     errors,
+    ipc,
     pid: child.pid,
     exited: () => child.exitCode !== null,
     async evaluate(expression) {
@@ -190,6 +195,7 @@ async function session(files, port, run, { singleInstance = false, profileDir = 
   await send("Runtime.enable");
   await send("Log.enable");
   await send("Page.enable");
+  await send("Network.enable");
   try {
     if (files.length) await app.waitFor(`!!document.querySelector(".page canvas")`);
     else await app.waitFor(`!!document.querySelector(".welcome")`);
@@ -857,6 +863,18 @@ await session(saved, 9335, async (app) => {
   const count = (text) => runs.filter((i) => i.str === text).length;
   check("saving again doesn't leave the old drawing behind", count("Kari") === 1 && count("Søknad om medlemskap") === 1 && count("Brother") === 1);
 }
+
+// Links: a click on a linked picture opens the web page (here only recorded, not opened).
+await session(sample("links.pdf"), 9350, async (app) => {
+  await app.waitFor(`!!document.querySelector(".linkAnnotation a")`, 8000);
+  const [x, y] = await app.center(".linkAnnotation a");
+  await app.click(x, y);
+  // Test copies don't really open the browser (see open_url), so the request is checked.
+  const opened = () => app.ipc.filter((request) => request.method === "POST" && request.url.endsWith("/open_url")).map((request) => request.postData);
+  for (let i = 0; i < 30 && !opened().length; i++) await sleep(100);
+  check("clicking a linked picture opens its web page", opened().length === 1 && JSON.parse(opened()[0]).url === "https://example.com/duck", JSON.stringify(opened()));
+  check("no errors in the app", app.errors.length === 0, app.errors.join("; "));
+});
 
 // Another Duckument (another computer's key) sees only the finished pages.
 const stranger = mkdtempSync(join(tmpdir(), "duckument-smoke-other-"));

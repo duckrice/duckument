@@ -24,6 +24,22 @@ fn startup_files() -> Vec<String> {
     files_in(std::env::args_os().skip(1), &cwd)
 }
 
+/// Opens a link from a PDF in the browser (or mail program). Only web and e-mail
+/// addresses: a PDF from anyone must not start programs or open files.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    let lower = url.to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:")) {
+        return Err("Only web and e-mail addresses can be opened.".into());
+    }
+    // Test runs check the request reaches here; they must not open the user's browser.
+    if std::env::var_os("DUCKUMENT_TEST_OFFSCREEN").is_some() {
+        return Ok(());
+    }
+    // Explorer hands the address to the default browser; no shell, so nothing in it is run.
+    std::process::Command::new("explorer").arg(&url).spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
 /// Which of the given files still exist, for the list of recent files.
 #[tauri::command]
 fn existing_files(paths: Vec<String>) -> Vec<bool> {
@@ -124,7 +140,8 @@ pub fn run() {
             existing_files,
             read_file,
             read_system_font,
-            write_file
+            write_file,
+            open_url
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
