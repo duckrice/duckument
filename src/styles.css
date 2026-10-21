@@ -1314,3 +1314,10 @@ select {
   text-indent: inherit;
   text-align: inherit;
 }
+
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 4px;
+}

@@ -17,6 +17,7 @@ const PATHS = {
   arrow: '<path d="M5 19 19 5M10 5h9v9"/>',
   pen: '<path d="m4 20 1-4L16 5l3 3L8 19z"/><path d="m14 7 3 3"/>',
   whiteout: '<path d="m8 20-5-5L14 4l7 7-9 9z"/><path d="M8 20h12M8.500 9.500l6 6"/>',
+  hash: '<path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/>',
   image: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.500" cy="10" r="1.500"/><path d="m21 16-5-5-8 8"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   minus: '<path d="M5 12h14"/>',

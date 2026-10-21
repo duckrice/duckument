@@ -5,7 +5,8 @@ import { h } from "./dom";
 import { restore, seal, storableItems } from "./editdata";
 import { EncryptedPdfError, assemblePdf, type ExportEnv, type SourceBytes } from "./export";
 import { Interaction, imageFromBlob } from "./interact";
-import type { PageRef } from "./model";
+import { newId, type PageRef } from "./model";
+import { pageNumberItems, type PageNumberOptions } from "./pagenumbers";
 import { Overlay } from "./overlay";
 import { blankPage, deletePages, insertPages, itemsFor, movePages, pagesOf, rotatePages } from "./pageops";
 import { WORD_FILTER, baseName, isDesktop, pickImage, pickPdf, pickSavePath, readSystemFont, writePath, type OpenedFile } from "./platform";
@@ -55,7 +56,7 @@ export class DocTab {
   private shownPages: PageRef[] = [];
 
   constructor(
-    settings: Settings,
+    private settings: Settings,
     private hooks: TabHooks,
   ) {
     const pagesArea = h("main", { class: "viewer" });
@@ -318,6 +319,14 @@ export class DocTab {
     } finally {
       if (own) void pdf.loadingTask.destroy();
     }
+  }
+
+  /** Puts page numbers on every page, as one step to undo. */
+  addPageNumbers(options: Omit<PageNumberOptions, "font" | "color">) {
+    const pages = this.viewer.pages.map((v) => (v.ref.rotation % 180 ? { width: v.height, height: v.width } : { width: v.width, height: v.height }));
+    const items = pageNumberItems(pages, { ...options, font: this.settings.font, color: "#000000" }, newId);
+    this.store.apply({ items: [...this.store.items, ...items], pages: this.store.pages });
+    return items.length;
   }
 
   async insertImage() {

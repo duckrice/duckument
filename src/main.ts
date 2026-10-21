@@ -76,6 +76,7 @@ const toolbar = new Toolbar(nothingOpen, settings, {
   saveAs: () => void active?.save(true),
   saveAsWord: () => void active?.saveAsWord(),
   insertImage: () => void active?.insertImage(),
+  pageNumbers: () => void askPageNumbers(),
   toast,
 });
 documents.append(welcome, search.el);
@@ -127,6 +128,45 @@ function ask(title: string, message: string, buttons: { label: string; value: st
     document.body.append(dialog);
     dialog.showModal();
   });
+}
+
+/** Asks how to number the pages, then numbers them. */
+function askPageNumbers() {
+  const tab = active;
+  if (!tab?.viewer.pdf) return;
+  const select = (label: string, options: [string, string][]) => h("label", { class: "field" }, label, h("select", { class: "text-input" }, ...options.map(([value, text]) => h("option", { value }, text))));
+  const format = select("Look", [["page-of", "Page 1 of 9"], ["number", "1"], ["slash", "1 / 9"]]);
+  const place = select("Where", [["bottom-center", "Bottom, in the middle"], ["bottom-right", "Bottom right"], ["top-right", "Top right"]]);
+  const size = h("label", { class: "field" }, "Size", h("input", { type: "number", class: "text-input", min: 6, max: 72, value: 10 }));
+  const start = h("label", { class: "field" }, "Start at", h("input", { type: "number", class: "text-input", min: 0, value: 1 }));
+  const skip = h("label", { class: "check-field" }, h("input", { type: "checkbox" }), " No number on the first page (a title page)");
+  const form = h(
+    "form",
+    { method: "dialog" },
+    h("h2", {}, "Page numbers"),
+    h("p", {}, "A number goes on every page as ordinary text: you can move, change or delete each one, and undo them all at once."),
+    format,
+    place,
+    size,
+    start,
+    skip,
+    h("div", { class: "dialog-footer" }, h("button", { type: "button", class: "btn", onclick: () => dialog.close() }, "Cancel"), h("button", { type: "submit", class: "btn primary" }, "Add")),
+  );
+  const value = (el: HTMLElement) => (el.querySelector("select, input") as HTMLInputElement).value;
+  form.addEventListener("submit", () => {
+    const count = tab.addPageNumbers({
+      format: value(format) as "page-of",
+      place: value(place) as "bottom-center",
+      size: Math.max(6, Math.min(72, Number(value(size)) || 10)),
+      start: Math.max(0, Math.round(Number(value(start)) || 1)),
+      skipFirst: (skip.querySelector("input") as HTMLInputElement).checked,
+    });
+    toast(`Numbered ${count} ${count === 1 ? "page" : "pages"}.`);
+  });
+  const dialog = h("dialog", { class: "dialog" }, form);
+  dialog.addEventListener("close", () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
 }
 
 function askPassword(retry: boolean): Promise<string | null> {
