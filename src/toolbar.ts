@@ -21,6 +21,7 @@ export interface Actions {
   insertImage(): void;
   pageNumbers(): void;
   watermark(): void;
+  stamp(): void;
   toast(message: string): void;
 }
 
@@ -127,6 +128,7 @@ export class Toolbar {
     const imageButton = button("image", "Insert a picture", actions.insertImage);
     const numbersButton = button("hash", "Add page numbers, or a header or footer", actions.pageNumbers);
     const watermarkButton = button("watermark", "Add a watermark", actions.watermark);
+    const stampButton = button("stamp", "Stamp the page (Approved, Received, …)", actions.stamp);
 
     const zoomOut = button("minus", "Zoom out (Ctrl+-)", () => this.viewer.setZoom(this.viewer.zoom / 1.2));
     const zoomIn = button("plus", "Zoom in (Ctrl++)", () => this.viewer.setZoom(this.viewer.zoom * 1.2));
@@ -135,7 +137,7 @@ export class Toolbar {
 
     // select, text, edit text, highlight, comment | sign | check, cross | shapes... | picture
     const [select, text, editText, markup, note, check, cross, ...shapes] = tools;
-    this.docButtons = [pagesButton, this.saveButton, wordButton, ...tools, this.signButton, imageButton, numbersButton, watermarkButton, zoomOut, zoomIn, this.zoomLabel];
+    this.docButtons = [pagesButton, this.saveButton, wordButton, ...tools, this.signButton, imageButton, numbersButton, watermarkButton, stampButton, zoomOut, zoomIn, this.zoomLabel];
 
     const main = h(
       "div",
@@ -143,7 +145,7 @@ export class Toolbar {
       h("div", { class: "group" }, pagesButton, openButton, this.saveButton, wordButton),
       h("div", { class: "group" }, this.undoButton, this.redoButton),
       h("div", { class: "group" }, select, text, editText, markup, note, h("div", { class: "menu-anchor" }, this.signButton, this.signMenu), check, cross),
-      h("div", { class: "group" }, ...shapes, imageButton, numbersButton, watermarkButton),
+      h("div", { class: "group" }, ...shapes, imageButton, numbersButton, watermarkButton, stampButton),
       h("div", { class: "spacer" }),
       h("div", { class: "group" }, this.pageLabel, zoomOut, this.zoomLabel, zoomIn),
     );

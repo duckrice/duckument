@@ -18,6 +18,7 @@ const PATHS = {
   pen: '<path d="m4 20 1-4L16 5l3 3L8 19z"/><path d="m14 7 3 3"/>',
   redact: '<rect x="3" y="8" width="18" height="8" rx="1" fill="currentColor"/><path d="M3 4h10M3 20h14"/>',
   whiteout: '<path d="m8 20-5-5L14 4l7 7-9 9z"/><path d="M8 20h12M8.500 9.500l6 6"/>',
+  stamp: '<path d="M9 4h6l-1 7h-4z"/><path d="M5 14h14v3H5z"/><path d="M5 20h14"/>',
   watermark: '<path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="m8 16 8-6" stroke-dasharray="2 2"/>',
   hash: '<path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/>',
   image: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.500" cy="10" r="1.500"/><path d="m21 16-5-5-8 8"/>',

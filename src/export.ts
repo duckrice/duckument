@@ -1,6 +1,7 @@
 // Writes the user's additions into the PDF's page content.
 
 import fontkit from "@pdf-lib/fontkit";
+import { STAMP_LINE, STAMP_PAD } from "./stamps";
 import {
   LineCapStyle,
   LineJoinStyle,
@@ -248,6 +249,17 @@ class Writer {
     return [...out, ...ops, popGraphicsState()];
   }
 
+  /** A stamp's border, as the screen draws it: a line `STAMP_PAD` outside the text. */
+  private async frameOps(item: TextItem): Promise<PDFOperator[]> {
+    const font = await this.font(item);
+    const lines = item.text.split("\n");
+    const w = Math.max(...lines.map((line) => (this.env.measure ? this.env.measure(item, line) : font.widthOfTextAtSize(line, item.size))));
+    const h = lines.length * item.size * LINE_HEIGHT;
+    const out = STAMP_PAD + STAMP_LINE / 2;
+    const [x1, y1, x2, y2] = [item.x - out, item.y - out, item.x + w + out, item.y + h + out];
+    return paintOps({ cmds: [["M", x1, y1], ["L", x2, y1], ["L", x2, y2], ["L", x1, y2], ["Z"]], stroke: item.color, fill: null, width: STAMP_LINE, round: false });
+  }
+
   private async textOps(page: PDFPage, item: TextItem): Promise<PDFOperator[]> {
     const font = await this.font(item);
     let known = this.charsets.get(font);
@@ -362,7 +374,7 @@ class Writer {
     }
     for (const item of items) {
       if (item.type === "text") {
-        if (item.text) ops.push(...this.turned(page, item, await this.textOps(page, item)));
+        if (item.text) ops.push(...this.turned(page, item, [...(item.frame ? await this.frameOps(item) : []), ...(await this.textOps(page, item))]));
       } else if (item.type === "image") ops.push(...(await this.imageOps(page, item)));
       else if (isMarkup(item)) ops.push(...this.markupOps(page, item));
       else if (item.type === "note") notes.push(item);

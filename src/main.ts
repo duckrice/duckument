@@ -4,6 +4,7 @@ import "./styles.css";
 import { getVersion } from "@tauri-apps/api/app";
 import logo from "./assets/duckument.png";
 import { h, isTyping } from "./dom";
+import { STAMPS } from "./stamps";
 import {
   baseName,
   existingFiles,
@@ -78,6 +79,7 @@ const toolbar = new Toolbar(nothingOpen, settings, {
   insertImage: () => void active?.insertImage(),
   pageNumbers: () => void askPageNumbers(),
   watermark: () => void askWatermark(),
+  stamp: () => void askStamp(),
   toast,
 });
 documents.append(welcome, search.el);
@@ -167,6 +169,39 @@ function askPageNumbers() {
       text: (custom.querySelector("input") as HTMLInputElement).value,
     });
     toast(`Numbered ${count} ${count === 1 ? "page" : "pages"}.`);
+  });
+  const dialog = h("dialog", { class: "dialog" }, form);
+  dialog.addEventListener("close", () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
+/** Shows the stamps to pick from, then puts the chosen one on the page being read. */
+function askStamp() {
+  const tab = active;
+  if (!tab?.viewer.pdf) return;
+  const withDate = h("input", { type: "checkbox", checked: true }) as HTMLInputElement;
+  const own = h("input", { type: "text", class: "text-input", maxlength: 30, placeholder: "Your own words" }) as HTMLInputElement;
+  const ownColor = h("input", { type: "color", value: "#7c3aed" }) as HTMLInputElement;
+  const place = (words: string, color: string) => {
+    dialog.close();
+    const date = withDate.checked ? new Date().toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : null;
+    toast(`Stamped page ${tab.addStamp(words, color, date)}. Drag it where you want it.`);
+  };
+  const form = h(
+    "form",
+    { method: "dialog" },
+    h("h2", {}, "Stamp"),
+    h("p", {}, "Goes in the top-right corner of the page you're reading. It can be moved, changed or deleted afterwards."),
+    h("div", { class: "stamp-grid" }, ...STAMPS.map(([words, color]) => h("button", { type: "button", class: "stamp-choice", style: `color: ${color}; border-color: ${color}`, onclick: () => place(words, color) }, words))),
+    h("label", { class: "field" }, "Or", own, ownColor),
+    h("label", { class: "check-field" }, withDate, " With today's date"),
+    h("div", { class: "dialog-footer" }, h("button", { type: "button", class: "btn", onclick: () => dialog.close() }, "Cancel"), h("button", { type: "submit", class: "btn primary" }, "Stamp")),
+  );
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (own.value.trim()) place(own.value.trim().toUpperCase(), ownColor.value);
+    else own.focus();
   });
   const dialog = h("dialog", { class: "dialog" }, form);
   dialog.addEventListener("close", () => dialog.remove());

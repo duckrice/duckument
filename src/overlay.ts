@@ -8,6 +8,7 @@ import { markBars, paints, svgPath } from "./shapes";
 import type { Store } from "./store";
 import { cssFont, linesOf } from "./textmetrics";
 import type { Viewer } from "./viewer";
+import { STAMP_LINE, STAMP_PAD } from "./stamps";
 
 type ItemElement = HTMLElement | SVGSVGElement;
 
@@ -141,6 +142,9 @@ export class Overlay {
       style.transformOrigin = item.angle ? "0 0" : "";
       style.transform = item.angle ? `rotate(${-item.angle}deg)` : "";
       style.opacity = item.opacity !== undefined ? String(item.opacity) : "";
+      style.outline = item.frame ? `${STAMP_LINE}px solid ${item.color}` : "";
+      style.outlineOffset = item.frame ? `${STAMP_PAD}px` : "";
+      style.borderRadius = item.frame ? "2px" : "";
       const wrapped = item.width !== undefined;
       el.classList.toggle("paragraph", wrapped);
       style.width = wrapped ? `${item.width}px` : "";

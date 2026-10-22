@@ -528,6 +528,14 @@ await session(sample("long.pdf"), 9342, async (app) => {
   check("Add a watermark puts DRAFT across every page", marked === 300, String(marked));
   check("shown turned and see-through", await app.waitFor(`(() => { const el = document.querySelector(".item.text"); return !!el && el.style.transform.includes("rotate(-45deg)") && el.style.opacity === "0.25"; })()`, 3000));
   await app.evaluate(`window.__fpe.store.undo()`);
+  // A stamp, picked from the stamp dialog, framed on the page being read.
+  await app.clickOn('.toolbar [title^="Stamp the page"]');
+  await app.waitFor(`!!document.querySelector("dialog[open] .stamp-choice")`, 3000);
+  await app.clickOn("dialog[open] .stamp-choice");
+  const stamped = await app.evaluate(`window.__fpe.store.items.filter((i) => i.type === "text" && i.frame && i.text.startsWith("APPROVED\\n")).length`);
+  check("a stamp goes on the page, with the date", stamped === 1, String(stamped));
+  check("drawn in a frame", await app.waitFor(`[...document.querySelectorAll(".item.text")].some((el) => el.style.outline.includes("3px"))`, 3000));
+  await app.evaluate(`window.__fpe.store.undo()`);
   const started = Date.now();
   await app.evaluate(`document.querySelector(".thumb-list").scrollTop = 1e9`);
   const drawn = await app.waitFor(`[...document.querySelectorAll(".thumb")].slice(-3).every((t) => t.querySelector("canvas"))`, 8000);

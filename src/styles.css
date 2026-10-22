@@ -1321,3 +1321,27 @@ select {
   gap: 6px;
   margin: 10px 0 4px;
 }
+
+/* ---- stamps ---- */
+.stamp-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.stamp-choice {
+  padding: 6px 8px;
+  border: 2.5px solid;
+  border-radius: 3px;
+  background: none;
+  font: 700 13px/1.2 Helvetica, Arial, sans-serif;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transform: rotate(-2deg);
+}
+
+.stamp-choice:hover,
+.stamp-choice:focus-visible {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}

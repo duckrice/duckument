@@ -29,6 +29,8 @@ export interface TextItem extends ItemBase {
   angle?: number;
   /** See-through: 0 to 1 (watermarks). */
   opacity?: number;
+  /** A stamp: a rounded border round the text, in its colour. */
+  frame?: true;
   /**
    * Set when this text replaces text that was already in the document: the
    * area of the original that is painted over, the colour to paint it, and

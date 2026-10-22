@@ -8,6 +8,7 @@ import { Interaction, imageFromBlob } from "./interact";
 import { newId, type PageRef } from "./model";
 import { pageNumberItems, type PageNumberOptions } from "./pagenumbers";
 import { watermarkItems, type WatermarkOptions } from "./watermark";
+import { stampItem } from "./stamps";
 import { Overlay } from "./overlay";
 import { blankPage, deletePages, insertPages, itemsFor, movePages, pagesOf, rotatePages } from "./pageops";
 import { WORD_FILTER, baseName, isDesktop, pickImage, pickPdf, pickSavePath, readSystemFont, writePath, type OpenedFile } from "./platform";
@@ -338,6 +339,15 @@ export class DocTab {
     const items = watermarkItems(pages, { ...options, font: "helvetica" }, newId);
     this.store.apply({ items: [...this.store.items, ...items], pages: this.store.pages });
     return items.length;
+  }
+
+  /** Puts a stamp on the page being read; returns which page (from 1). */
+  addStamp(words: string, color: string, date: string | null): number {
+    const index = this.viewer.currentPage;
+    const v = this.viewer.pages[index];
+    const page = v.ref.rotation % 180 ? { width: v.height, height: v.width } : { width: v.width, height: v.height };
+    this.store.apply({ items: [...this.store.items, stampItem(page, index, words, color, date, newId())], pages: this.store.pages });
+    return index + 1;
   }
 
   async insertImage() {
