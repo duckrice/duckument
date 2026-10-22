@@ -942,5 +942,23 @@ rmSync(saved, { force: true });
 rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });
 
 if (shotsDir) console.log(`\n${shots} screenshots saved to ${shotsDir}`);
+// ---- redaction: the text under the box is gone from the saved file ------------------------------
+
+await session(sample("flat.pdf"), 9348, async (app) => {
+  await app.debugHandle();
+  await app.waitFor(`document.querySelectorAll(".page").length > 0`, 8000);
+  const before = await app.evaluate(`(async () => (await window.__fpe.viewer.pageText(0)).length)()`);
+  await app.tool("Redact");
+  const [px, py, pw, ph] = await app.center(".page", 0);
+  await app.drag(px - pw * 0.45, py - ph * 0.3, px + pw * 0.45, py + ph * 0.3);
+  check("the Redact tool draws a black box", (await app.evaluate(`window.__fpe.store.items.filter((i) => i.redact && i.fill === "#000000").length`)) === 1);
+  await app.evaluate(`window.__fpe.showSaved()`);
+  await app.waitFor(`window.__fpe.tabs.length === 2 && window.__fpe.tabs[1].active`, 15000);
+  const after = await app.evaluate(`(async () => (await window.__fpe.viewer.pageText(0)).length)()`);
+  check("saving takes the text on a redacted page out of the file", before > 0 && after === 0, `${before} → ${after}`);
+  const second = await app.evaluate(`(async () => (await window.__fpe.viewer.pageText(1)).length)()`);
+  check("other pages keep their text", second > 0, String(second));
+});
+
 console.log(failures ? `\n${failures} check(s) failed` : "\nAll checks passed");
 process.exit(failures ? 1 : 0);

@@ -16,6 +16,7 @@ const PATHS = {
   line: '<path d="M5 19 19 5"/>',
   arrow: '<path d="M5 19 19 5M10 5h9v9"/>',
   pen: '<path d="m4 20 1-4L16 5l3 3L8 19z"/><path d="m14 7 3 3"/>',
+  redact: '<rect x="3" y="8" width="18" height="8" rx="1" fill="currentColor"/><path d="M3 4h10M3 20h14"/>',
   whiteout: '<path d="m8 20-5-5L14 4l7 7-9 9z"/><path d="M8 20h12M8.500 9.500l6 6"/>',
   watermark: '<path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="m8 16 8-6" stroke-dasharray="2 2"/>',
   hash: '<path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/>',

@@ -49,6 +49,8 @@ export interface ShapeItem extends ItemBase, Box {
   stroke: string | null;
   fill: string | null;
   strokeWidth: number;
+  /** A redaction: on saving, what's under it is removed from the page for good, not just covered. */
+  redact?: true;
 }
 
 export interface LineItem extends ItemBase {

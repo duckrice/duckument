@@ -229,6 +229,7 @@ export class DocTab {
     return {
       seal: (saved) => seal({ v: 1, pages: saved.map((page, i) => ({ ...page, extra: pages[i]?.rotation ?? 0 })), items: storableItems(items) }),
       pageTransform: (index) => this.viewer.pageTransform(index),
+      redact: (index, boxes) => this.viewer.redactedPicture(index, boxes),
       baseline,
       rasterizeText,
       loadFont: isDesktop ? readSystemFont : undefined,
@@ -250,6 +251,7 @@ export class DocTab {
     return assemblePdf(await this.sourcesWithForms(), PRIMARY, chosen, items, {
       ...this.exportEnv(chosen, items),
       pageTransform: (index) => this.viewer.pageTransform(viewIndex[index]),
+      redact: (index, boxes) => this.viewer.redactedPicture(viewIndex[index], boxes),
     });
   }
 

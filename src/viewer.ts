@@ -502,6 +502,25 @@ export class Viewer {
     return page.getViewport({ scale: 1 }).transform as Matrix;
   }
 
+  /** A picture of a page as displayed, at twice its size, with boxes blacked out (for redacting). */
+  async redactedPicture(index: number, boxes: Box[]): Promise<{ src: string; w: number; h: number }> {
+    const view = this.pages[index];
+    const page = await this.loadPage(view);
+    const scale = 2;
+    const viewport = page?.getViewport({ scale });
+    const [w, h] = viewport ? [viewport.width / scale, viewport.height / scale] : [view.width, view.height];
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(w * scale);
+    canvas.height = Math.ceil(h * scale);
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (page && viewport) await page.render({ canvas, viewport }).promise;
+    ctx.fillStyle = "#000000";
+    for (const b of boxes) ctx.fillRect(Math.min(b.x, b.x + b.w) * scale, Math.min(b.y, b.y + b.h) * scale, Math.abs(b.w) * scale, Math.abs(b.h) * scale);
+    return { src: canvas.toDataURL("image/png"), w, h };
+  }
+
   scrollToPage(index: number) {
     this.pages[index]?.el.scrollIntoView({ block: "start" });
   }

@@ -42,7 +42,7 @@ import {
   PDFString,
 } from "pdf-lib";
 import { fontDef, fontFile, type FontClass } from "./fonts";
-import { LINE_HEIGHT, NOTE_SIZE, isMarkup, type ImageItem, type Item, type MarkupItem, type NoteItem, type PageRef, type TextItem } from "./model";
+import { LINE_HEIGHT, NOTE_SIZE, isMarkup, type Box, type ImageItem, type Item, type MarkupItem, type NoteItem, type PageRef, type ShapeItem, type TextItem } from "./model";
 import { removeTextFromPage } from "./contentedit";
 import { MARK, NOTE_FLAG, attach, type SavedPage } from "./editdata";
 import { layoutText } from "./paragraphs";
@@ -67,6 +67,11 @@ export interface ExportEnv {
    * same way in the file. Without it, the embedded font's widths are used.
    */
   measure?(item: TextItem, text: string): number;
+  /**
+   * A picture of a page as displayed (at scale 1: w × h points), with the given boxes blacked out,
+   * for redacting: the page's own content is replaced by it.
+   */
+  redact?(page: number, boxes: Box[]): Promise<{ src: string; w: number; h: number }>;
   /** Told how many edited pieces of text could only be painted over, not removed. */
   onCoverOnly?(count: number): void;
   /**
@@ -323,6 +328,19 @@ class Writer {
    *   for real; those need no cover.
    */
   async write(page: PDFPage, index: number, items: Item[], removed: Set<string> = new Set()) {
+    // Redactions: the page becomes a picture of itself with the boxes black, so the text, pictures
+    // and links under them are gone from the file. Drawn outside Duckument's own marks, so it stays.
+    const redactions = items.filter((item): item is ShapeItem => item.type === "rect" && !!item.redact);
+    if (redactions.length) {
+      if (!this.env.redact) throw new Error("This page can't be redacted here.");
+      const picture = await this.env.redact(index, redactions);
+      page.node.set(PDFName.of("Contents"), this.doc.context.register(this.doc.context.flateStream("")));
+      page.node.delete(PDFName.of("Annots"));
+      const toPdf = invert(await this.env.pageTransform(index));
+      const image: ImageItem = { id: "redacted-page", type: "image", page: index, x: 0, y: 0, w: picture.w, h: picture.h, src: picture.src };
+      page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...toPdf), ...(await this.imageOps(page, image)), popGraphicsState());
+      items = items.filter((item) => !redactions.includes(item as ShapeItem));
+    }
     const ops: PDFOperator[] = [];
     const notes: NoteItem[] = [];
     // Everything that hides original text goes down first, so one replacement's

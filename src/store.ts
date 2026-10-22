@@ -14,6 +14,7 @@ export type Tool =
   | "arrow"
   | "pen"
   | "whiteout"
+  | "redact"
   | "place";
 
 /** Everything about a document that can be undone. */

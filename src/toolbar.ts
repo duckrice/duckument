@@ -38,6 +38,7 @@ const TOOLS: { tool: Tool; icon: IconName; label: string; key: string; text?: st
   { tool: "arrow", icon: "arrow", label: "Arrow", key: "A" },
   { tool: "pen", icon: "pen", label: "Draw freehand", key: "P" },
   { tool: "whiteout", icon: "whiteout", label: "White-out (cover something up)", key: "W" },
+  { tool: "redact", icon: "redact", label: "Redact (black out for good: the text underneath is removed when you save)", key: "B" },
 ];
 
 const COLORS = ["#000000", "#1a3fb0", "#d92626", "#178a3e", "#f08c00", "#ffffff"];

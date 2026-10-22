@@ -50,6 +50,7 @@ const TOOL_KEYS: Record<string, Tool> = {
   c: "check",
   x: "cross",
   w: "whiteout",
+  b: "redact",
 };
 
 /** Pixels the pointer must travel before a press on an item becomes a move. */
@@ -364,6 +365,9 @@ export class Interaction {
         break;
       case "whiteout":
         this.store.add({ ...base, type: "rect", x: p.x, y: p.y, w: 0, h: 0, stroke: null, fill: "#ffffff", strokeWidth: 0 });
+        break;
+      case "redact":
+        this.store.add({ ...base, type: "rect", x: p.x, y: p.y, w: 0, h: 0, stroke: null, fill: "#000000", strokeWidth: 0, redact: true });
         break;
       case "line":
       case "arrow":
