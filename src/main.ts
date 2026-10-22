@@ -136,17 +136,20 @@ function askPageNumbers() {
   const tab = active;
   if (!tab?.viewer.pdf) return;
   const select = (label: string, options: [string, string][]) => h("label", { class: "field" }, label, h("select", { class: "text-input" }, ...options.map(([value, text]) => h("option", { value }, text))));
-  const format = select("Look", [["page-of", "Page 1 of 9"], ["number", "1"], ["slash", "1 / 9"]]);
-  const place = select("Where", [["bottom-center", "Bottom, in the middle"], ["bottom-right", "Bottom right"], ["top-right", "Top right"]]);
+  const format = select("Look", [["page-of", "Page 1 of 9"], ["number", "1"], ["slash", "1 / 9"], ["custom", "My own text…"]]);
+  const place = select("Where", [["bottom-center", "Bottom, in the middle"], ["bottom-right", "Bottom right"], ["bottom-left", "Bottom left"], ["top-right", "Top right"], ["top-center", "Top, in the middle"], ["top-left", "Top left"]]);
+  const custom = h("label", { class: "field", hidden: true }, "Text ({n} = page, {total} = pages, {date} = today)", h("input", { type: "text", class: "text-input", value: "Confidential · page {n} of {total}" }));
+  format.querySelector("select")!.addEventListener("change", (e) => (custom.hidden = (e.target as HTMLSelectElement).value !== "custom"));
   const size = h("label", { class: "field" }, "Size", h("input", { type: "number", class: "text-input", min: 6, max: 72, value: 10 }));
   const start = h("label", { class: "field" }, "Start at", h("input", { type: "number", class: "text-input", min: 0, value: 1 }));
   const skip = h("label", { class: "check-field" }, h("input", { type: "checkbox" }), " No number on the first page (a title page)");
   const form = h(
     "form",
     { method: "dialog" },
-    h("h2", {}, "Page numbers"),
+    h("h2", {}, "Page numbers, header and footer"),
     h("p", {}, "A number goes on every page as ordinary text: you can move, change or delete each one, and undo them all at once."),
     format,
+    custom,
     place,
     size,
     start,
@@ -161,6 +164,7 @@ function askPageNumbers() {
       size: Math.max(6, Math.min(72, Number(value(size)) || 10)),
       start: Math.max(0, Math.round(Number(value(start)) || 1)),
       skipFirst: (skip.querySelector("input") as HTMLInputElement).checked,
+      text: (custom.querySelector("input") as HTMLInputElement).value,
     });
     toast(`Numbered ${count} ${count === 1 ? "page" : "pages"}.`);
   });

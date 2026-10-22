@@ -23,6 +23,12 @@ describe("page numbers", () => {
     expect(y).toBeGreaterThan(780);
   });
 
+  it("can be your own text, at the top left", () => {
+    const items = pageNumberItems([a4, a4], { ...base, format: "custom", place: "top-left", text: "Report – {n}/{total}" }, id);
+    expect(items.map((i) => i.text)).toEqual(["Report – 1/2", "Report – 2/2"]);
+    expect([items[0].x, items[0].y < 60]).toEqual([36, true]);
+  });
+
   it("can leave out a title page and start at another number", () => {
     const items = pageNumberItems([a4, a4, a4], { ...base, format: "number", place: "top-right", skipFirst: true, start: 5 }, id);
     expect(items.map((i) => [i.page, i.text])).toEqual([

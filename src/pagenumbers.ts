@@ -4,8 +4,8 @@
 
 import { LINE_HEIGHT, type TextItem } from "./model";
 
-export type NumberFormat = "page-of" | "number" | "slash";
-export type NumberPlace = "bottom-center" | "bottom-right" | "top-right";
+export type NumberFormat = "page-of" | "number" | "slash" | "custom";
+export type NumberPlace = "bottom-center" | "bottom-right" | "bottom-left" | "top-right" | "top-center" | "top-left";
 
 export interface PageNumberOptions {
   format: NumberFormat;
@@ -17,12 +17,15 @@ export interface PageNumberOptions {
   skipFirst: boolean;
   font: string;
   color: string;
+  /** For "custom": the text, with {n} for the page's number, {total} for the count and {date} for today. */
+  text?: string;
 }
 
 /** How far from the page's edge, in points (about 1.3 cm). */
 const MARGIN = 36;
 
-export function numberText(format: NumberFormat, n: number, total: number): string {
+export function numberText(format: NumberFormat, n: number, total: number, text = ""): string {
+  if (format === "custom") return text.replace(/\{n\}/g, String(n)).replace(/\{total\}/g, String(total)).replace(/\{date\}/g, new Date().toLocaleDateString());
   return format === "page-of" ? `Page ${n} of ${total}` : format === "slash" ? `${n} / ${total}` : String(n);
 }
 
@@ -32,12 +35,12 @@ export function pageNumberItems(pages: { width: number; height: number }[], opti
   const total = pages.length - first + options.start - 1;
   return pages.flatMap((page, index) => {
     if (index < first) return [];
-    const text = numberText(options.format, index - first + options.start, total);
+    const text = numberText(options.format, index - first + options.start, total, options.text);
     // Roughly as wide as Helvetica sets it; the box sizes itself to the text when shown.
     const width = text.length * options.size * 0.52;
     const height = options.size * LINE_HEIGHT;
-    const x = options.place === "bottom-center" ? (page.width - width) / 2 : page.width - MARGIN - width;
-    const y = options.place === "top-right" ? MARGIN - height / 2 : page.height - MARGIN - height / 2;
+    const x = options.place.endsWith("center") ? (page.width - width) / 2 : options.place.endsWith("left") ? MARGIN : page.width - MARGIN - width;
+    const y = options.place.startsWith("top") ? MARGIN - height / 2 : page.height - MARGIN - height / 2;
     return [{ id: newId(), page: index, type: "text" as const, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, text, font: options.font, size: options.size, bold: false, italic: false, color: options.color }];
   });
 }

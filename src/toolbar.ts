@@ -125,7 +125,7 @@ export class Toolbar {
     );
     this.signMenu = h("div", { class: "menu sign-menu", hidden: true });
     const imageButton = button("image", "Insert a picture", actions.insertImage);
-    const numbersButton = button("hash", "Add page numbers", actions.pageNumbers);
+    const numbersButton = button("hash", "Add page numbers, or a header or footer", actions.pageNumbers);
     const watermarkButton = button("watermark", "Add a watermark", actions.watermark);
 
     const zoomOut = button("minus", "Zoom out (Ctrl+-)", () => this.viewer.setZoom(this.viewer.zoom / 1.2));

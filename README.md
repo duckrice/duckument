@@ -12,7 +12,7 @@ A small, free Windows app for the everyday PDF jobs: signing a document, filling
 - **Check marks and crosses** for tick boxes.
 - **Shapes**: rectangles, ellipses, lines, arrows, freehand drawing, and white-out to cover something up.
 - **Redact**: press `B` and draw over what must go. When you save, the page becomes a picture of itself with the boxes black, so the text, pictures and links underneath are really gone from the file (unlike white-out, which only covers them). The rest of that page can then no longer be selected as text.
-- **Page numbers and watermarks**: on every page, as ordinary text you can still move or change; Undo takes them all off.
+- **Page numbers, headers, footers and watermarks**: page numbers or your own text ({n}, {total}, {date}) at the top or bottom, and watermarks, on every page, as ordinary text you can still move or change; Undo takes them all off.
 - **Pictures**: insert an image, or paste one from the clipboard.
 - Undo/redo, copy/paste, and smooth zooming (Ctrl + mouse wheel).
 - Updates itself: when a new version is out, Duckument offers to install it.

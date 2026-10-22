@@ -513,7 +513,7 @@ await session(sample("long.pdf"), 9342, async (app) => {
   await app.debugHandle();
   check("a 300-page document lists every page", (await app.count(".thumb")) === 300);
   // Page numbers from the toolbar: one on every page, undone in one step.
-  await app.clickOn('.toolbar [title="Add page numbers"]');
+  await app.clickOn('.toolbar [title^="Add page numbers"]');
   await app.waitFor(`!!document.querySelector("dialog[open] select")`, 3000);
   await app.evaluate(`document.querySelector("dialog[open] form").requestSubmit()`);
   const numbered = await app.evaluate(`window.__fpe.store.items.filter((i) => i.type === "text" && /^Page \\d+ of 300$/.test(i.text)).length`);
