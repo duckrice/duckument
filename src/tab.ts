@@ -7,6 +7,7 @@ import { EncryptedPdfError, assemblePdf, type ExportEnv, type SourceBytes } from
 import { Interaction, imageFromBlob } from "./interact";
 import { newId, type PageRef } from "./model";
 import { pageNumberItems, type PageNumberOptions } from "./pagenumbers";
+import { watermarkItems, type WatermarkOptions } from "./watermark";
 import { Overlay } from "./overlay";
 import { blankPage, deletePages, insertPages, itemsFor, movePages, pagesOf, rotatePages } from "./pageops";
 import { WORD_FILTER, baseName, isDesktop, pickImage, pickPdf, pickSavePath, readSystemFont, writePath, type OpenedFile } from "./platform";
@@ -325,6 +326,14 @@ export class DocTab {
   addPageNumbers(options: Omit<PageNumberOptions, "font" | "color">) {
     const pages = this.viewer.pages.map((v) => (v.ref.rotation % 180 ? { width: v.height, height: v.width } : { width: v.width, height: v.height }));
     const items = pageNumberItems(pages, { ...options, font: this.settings.font, color: "#000000" }, newId);
+    this.store.apply({ items: [...this.store.items, ...items], pages: this.store.pages });
+    return items.length;
+  }
+
+  /** Puts a watermark across every page, as one step to undo. */
+  addWatermark(options: Omit<WatermarkOptions, "font">) {
+    const pages = this.viewer.pages.map((v) => (v.ref.rotation % 180 ? { width: v.height, height: v.width } : { width: v.width, height: v.height }));
+    const items = watermarkItems(pages, { ...options, font: "helvetica" }, newId);
     this.store.apply({ items: [...this.store.items, ...items], pages: this.store.pages });
     return items.length;
   }

@@ -520,6 +520,14 @@ await session(sample("long.pdf"), 9342, async (app) => {
   check("Add page numbers puts one on every page", numbered === 300, String(numbered));
   await app.evaluate(`window.__fpe.store.undo()`);
   check("and Undo takes them all off at once", (await app.evaluate(`window.__fpe.store.items.length`)) === 0);
+  // A watermark: turned, see-through words on every page.
+  await app.clickOn('.toolbar [title="Add a watermark"]');
+  await app.waitFor(`!!document.querySelector("dialog[open] input[list]")`, 3000);
+  await app.evaluate(`document.querySelector("dialog[open] form").requestSubmit()`);
+  const marked = await app.evaluate(`window.__fpe.store.items.filter((i) => i.type === "text" && i.text === "DRAFT" && i.angle === 45 && i.opacity === 0.25).length`);
+  check("Add a watermark puts DRAFT across every page", marked === 300, String(marked));
+  check("shown turned and see-through", await app.waitFor(`(() => { const el = document.querySelector(".item.text"); return !!el && el.style.transform.includes("rotate(-45deg)") && el.style.opacity === "0.25"; })()`, 3000));
+  await app.evaluate(`window.__fpe.store.undo()`);
   const started = Date.now();
   await app.evaluate(`document.querySelector(".thumb-list").scrollTop = 1e9`);
   const drawn = await app.waitFor(`[...document.querySelectorAll(".thumb")].slice(-3).every((t) => t.querySelector("canvas"))`, 8000);

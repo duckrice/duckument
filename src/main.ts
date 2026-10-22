@@ -77,6 +77,7 @@ const toolbar = new Toolbar(nothingOpen, settings, {
   saveAsWord: () => void active?.saveAsWord(),
   insertImage: () => void active?.insertImage(),
   pageNumbers: () => void askPageNumbers(),
+  watermark: () => void askWatermark(),
   toast,
 });
 documents.append(welcome, search.el);
@@ -162,6 +163,46 @@ function askPageNumbers() {
       skipFirst: (skip.querySelector("input") as HTMLInputElement).checked,
     });
     toast(`Numbered ${count} ${count === 1 ? "page" : "pages"}.`);
+  });
+  const dialog = h("dialog", { class: "dialog" }, form);
+  dialog.addEventListener("close", () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
+/** Asks for a watermark's words and look, then puts it on every page. */
+function askWatermark() {
+  const tab = active;
+  if (!tab?.viewer.pdf) return;
+  const words = h("input", { type: "text", class: "text-input", list: "watermark-words", value: "DRAFT", maxlength: 40 });
+  const list = h("datalist", { id: "watermark-words" }, ...["DRAFT", "CONFIDENTIAL", "COPY", "SAMPLE", "UTKAST", "KONFIDENSIELT"].map((w) => h("option", { value: w })));
+  const color = h("input", { type: "color", value: "#888888" });
+  const size = h("input", { type: "number", class: "text-input", min: 12, max: 200, value: 80 });
+  const opacity = h("input", { type: "range", min: 5, max: 100, value: 25 });
+  const across = h("input", { type: "checkbox", checked: true });
+  const form = h(
+    "form",
+    { method: "dialog" },
+    h("h2", {}, "Watermark"),
+    h("p", {}, "Words across the middle of every page. Each page's watermark can still be moved or changed, and Undo takes them all off."),
+    h("label", { class: "field" }, "Words", words, list),
+    h("label", { class: "field" }, "Size", size),
+    h("label", { class: "field" }, "Colour", color),
+    h("label", { class: "field" }, "How see-through", opacity),
+    h("label", { class: "check-field" }, across, " Diagonal"),
+    h("div", { class: "dialog-footer" }, h("button", { type: "button", class: "btn", onclick: () => dialog.close() }, "Cancel"), h("button", { type: "submit", class: "btn primary" }, "Add")),
+  );
+  form.addEventListener("submit", () => {
+    const text = (words as HTMLInputElement).value.trim();
+    if (!text) return;
+    const count = tab.addWatermark({
+      text,
+      size: Math.max(12, Math.min(200, Number((size as HTMLInputElement).value) || 80)),
+      angle: (across as HTMLInputElement).checked ? 45 : 0,
+      opacity: Number((opacity as HTMLInputElement).value) / 100,
+      color: (color as HTMLInputElement).value,
+    });
+    toast(`Added the watermark to ${count} ${count === 1 ? "page" : "pages"}.`);
   });
   const dialog = h("dialog", { class: "dialog" }, form);
   dialog.addEventListener("close", () => dialog.remove());

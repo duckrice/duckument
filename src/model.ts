@@ -25,6 +25,10 @@ export interface TextItem extends ItemBase {
   bold: boolean;
   italic: boolean;
   color: string;
+  /** Turned counter-clockwise about its top-left corner, in degrees (watermarks). */
+  angle?: number;
+  /** See-through: 0 to 1 (watermarks). */
+  opacity?: number;
   /**
    * Set when this text replaces text that was already in the document: the
    * area of the original that is painted over, the colour to paint it, and

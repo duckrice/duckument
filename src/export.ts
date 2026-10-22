@@ -225,6 +225,24 @@ class Writer {
     ];
   }
 
+  /** Text turned about its top-left corner and made see-through, for watermarks. */
+  private turned(page: PDFPage, item: TextItem, ops: PDFOperator[]): PDFOperator[] {
+    const faded = item.opacity !== undefined && item.opacity < 1;
+    if (!item.angle && !faded) return ops;
+    const out: PDFOperator[] = [pushGraphicsState()];
+    if (faded) {
+      const state = this.doc.context.register(this.doc.context.obj({ Type: "ExtGState", ca: item.opacity, CA: item.opacity }));
+      out.push(setGraphicsState(page.node.newExtGState("Fade", state)));
+    }
+    if (item.angle) {
+      // On the page as displayed (y down), counter-clockwise about (x, y).
+      const t = (item.angle * Math.PI) / 180;
+      const [cos, sin] = [Math.cos(t), Math.sin(t)];
+      out.push(concatTransformationMatrix(cos, -sin, sin, cos, item.x - (cos * item.x + sin * item.y), item.y - (-sin * item.x + cos * item.y)));
+    }
+    return [...out, ...ops, popGraphicsState()];
+  }
+
   private async textOps(page: PDFPage, item: TextItem): Promise<PDFOperator[]> {
     const font = await this.font(item);
     let known = this.charsets.get(font);
@@ -326,7 +344,7 @@ class Writer {
     }
     for (const item of items) {
       if (item.type === "text") {
-        if (item.text) ops.push(...(await this.textOps(page, item)));
+        if (item.text) ops.push(...this.turned(page, item, await this.textOps(page, item)));
       } else if (item.type === "image") ops.push(...(await this.imageOps(page, item)));
       else if (isMarkup(item)) ops.push(...this.markupOps(page, item));
       else if (item.type === "note") notes.push(item);

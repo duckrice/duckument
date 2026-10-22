@@ -138,6 +138,9 @@ export class Overlay {
       style.top = `${item.y}px`;
       style.font = cssFont(item);
       style.color = item.color;
+      style.transformOrigin = item.angle ? "0 0" : "";
+      style.transform = item.angle ? `rotate(${-item.angle}deg)` : "";
+      style.opacity = item.opacity !== undefined ? String(item.opacity) : "";
       const wrapped = item.width !== undefined;
       el.classList.toggle("paragraph", wrapped);
       style.width = wrapped ? `${item.width}px` : "";
