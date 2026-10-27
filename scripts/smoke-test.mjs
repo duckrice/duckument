@@ -1015,6 +1015,68 @@ await session(sample("flat.pdf"), 9353, async (app) => {
   check("and its text is still text", text.items.map((i) => i.str).join("") === "Holiday photos");
 });
 
+// A scan made searchable: Windows' OCR reads the words in the picture, and they become text in the PDF.
+await session(sample("flat.pdf"), 9355, async (app) => {
+  await app.debugHandle();
+  await app.waitFor(`document.querySelectorAll(".page").length > 0`, 8000);
+  const scan = await app.evaluate(`(async () => {
+    const canvas = new OffscreenCanvas(1240, 1754);
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#f4f1ea";
+    ctx.fillRect(0, 0, 1240, 1754);
+    ctx.fillStyle = "#222";
+    ctx.font = "48px Arial";
+    ctx.fillText("Receipt 4711", 120, 200);
+    ctx.fillText("Coffee and cinnamon bun", 120, 300);
+    const bytes = new Uint8Array(await (await canvas.convertToBlob({ type: "image/jpeg", quality: 0.9 })).arrayBuffer());
+    let s = ""; for (let i = 0; i < bytes.length; i += 32768) s += String.fromCharCode(...bytes.subarray(i, i + 32768)); return btoa(s);
+  })()`);
+  const doc = await PDFDocument.create();
+  const image = await doc.embedJpg(Buffer.from(scan, "base64"));
+  doc.addPage([595, 842]).drawImage(image, { x: 0, y: 0, width: 595, height: 842 });
+  const scanned = await doc.save();
+  const result = await app.evaluate(`(async () => {
+    const bytes = Uint8Array.from(atob(${JSON.stringify(Buffer.from(scanned).toString("base64"))}), (ch) => ch.charCodeAt(0));
+    const { bytes: out, pages } = await window.__fpe.searchable(bytes);
+    let s = ""; for (let i = 0; i < out.length; i += 32768) s += String.fromCharCode(...out.subarray(i, i + 32768)); return [btoa(s), pages];
+  })()`);
+  const read = Buffer.from(result[0], "base64");
+  const words = (await pdfjs.getDocument({ data: new Uint8Array(read) }).promise.then((p) => p.getPage(1)).then((p) => p.getTextContent())).items.map((i) => i.str).join(" ");
+  check("a scanned page is made searchable: its words become text", result[1] === 1 && /Receipt/.test(words) && /4711/.test(words) && /cinnamon/i.test(words), `${result[1]} page(s): ${words}`);
+  const again = await app.evaluate(`(async () => (await window.__fpe.searchable(Uint8Array.from(atob(${JSON.stringify(result[0])}), (ch) => ch.charCodeAt(0)))).pages)()`);
+  check("and a page that has text isn't read again", again === 0, String(again));
+});
+
+// Passwords: a PDF protected here asks for its password when opened, and saving takes it off.
+const locked = join(profile, "locked.pdf");
+await session(sample("flat.pdf"), 9356, async (app) => {
+  await app.debugHandle();
+  await app.waitFor(`document.querySelectorAll(".page").length > 0`, 8000);
+  const b64 = await app.evaluate(`(async () => {
+    const out = await window.__fpe.protect(await window.__fpe.build(), "andefjær");
+    let s = ""; for (let i = 0; i < out.length; i += 32768) s += String.fromCharCode(...out.subarray(i, i + 32768)); return btoa(s);
+  })()`);
+  writeFileSync(locked, Buffer.from(b64, "base64"));
+  await pdfjs.getDocument({ data: new Uint8Array(readFileSync(locked)) }).promise.then(
+    () => check("a protected PDF can't be read without its password", false),
+    (error) => check("a protected PDF can't be read without its password", /password/i.test(String(error)), String(error)),
+  );
+});
+await session(locked, 9357, async (app) => {
+  await app.debugHandle();
+  check("opening it asks for the password", await app.waitFor(`document.querySelector("dialog[open] h2")?.textContent === "This PDF is locked"`, 8000));
+  await app.evaluate(`(() => { const d = document.querySelector("dialog[open]"); d.querySelector("input").value = "andefjær"; d.querySelector(".btn.primary").click(); })()`);
+  check("and with it the PDF opens", await app.waitFor(`document.querySelectorAll(".page").length > 0`, 8000));
+  const b64 = await app.evaluate(`(async () => {
+    const out = await window.__fpe.build();
+    let s = ""; for (let i = 0; i < out.length; i += 32768) s += String.fromCharCode(...out.subarray(i, i + 32768)); return btoa(s);
+  })()`);
+  const saved = Buffer.from(b64, "base64");
+  const text = await pdfjs.getDocument({ data: new Uint8Array(saved) }).promise.then((p) => p.getPage(1)).then((p) => p.getTextContent()).then((t) => t.items.map((i) => i.str).join(" "), (e) => `failed: ${e}`);
+  check("saving it writes the PDF without the password", !/\/Encrypt\b/.test(saved.toString("latin1")) && text.length > 0 && !text.startsWith("failed"), text.slice(0, 120));
+  check("no errors", app.errors.length === 0, app.errors.join("; "));
+});
+
 // A form filled in for good: the answer is on the page, and there are no fields left to change.
 await session(sample("form.pdf"), 9354, async (app) => {
   await app.debugHandle();

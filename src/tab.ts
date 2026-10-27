@@ -11,13 +11,15 @@ import { watermarkItems, type WatermarkOptions } from "./watermark";
 import { stampItem } from "./stamps";
 import { Overlay } from "./overlay";
 import { blankPage, deletePages, insertPages, itemsFor, movePages, pagesOf, rotatePages } from "./pageops";
-import { WORD_FILTER, baseName, isDesktop, pickImage, pickPdfs, pickSavePath, readSystemFont, writePath, type OpenedFile } from "./platform";
+import { WORD_FILTER, baseName, isDesktop, pickImage, pickPdfs, pickSavePath, readTextIn, readSystemFont, writePath, type OpenedFile } from "./platform";
 import { pdfToDocx } from "./pdfword";
 import type { Settings } from "./settings";
 import { Store } from "./store";
 import { baseline, measureWidth, rasterizeText } from "./textmetrics";
 import { Thumbnails } from "./thumbnails";
 import { compressPdf, flattenForm, type CompressOptions } from "./compress";
+import { makeSearchable } from "./ocr";
+import { addPassword, isEncrypted, removePassword } from "./password";
 import { OpenCancelled, PRIMARY, Viewer } from "./viewer";
 
 export interface TabHooks {
@@ -222,12 +224,18 @@ export class DocTab {
   // ---- saving -------------------------------------------------------------
 
   /** Every source PDF, with the form fields filled in on it written into it. */
+  /** Whether saving took a password (or a lock) off one of the PDFs, to say so. */
+  private passwordRemoved = false;
+
   private async sourcesWithForms(): Promise<SourceBytes> {
     const out: SourceBytes = new Map();
     for (const [id, bytes] of this.sourceBytes) {
       const pdf = this.viewer.sources.get(id);
       // pdf.js writes the filled-in form fields; everything else is done afterwards.
-      out.set(id, pdf && pdf.annotationStorage.size > 0 ? await pdf.saveDocument() : bytes);
+      const own = pdf && pdf.annotationStorage.size > 0 ? await pdf.saveDocument() : bytes;
+      // A PDF with a password is saved without it: pdf-lib can't write encrypted files.
+      if (isEncrypted(own)) this.passwordRemoved = true;
+      out.set(id, isEncrypted(own) ? await removePassword(own, this.viewer.passwords) : own);
     }
     return out;
   }
@@ -286,7 +294,7 @@ export class DocTab {
       this.formsDirty = false;
       for (const pdf of this.viewer.sources.values()) pdf.annotationStorage.resetModified();
       this.store.markSaved();
-      this.hooks.toast(`Saved as ${baseName(path)}`);
+      this.hooks.toast(`Saved as ${baseName(path)}${this.passwordRemoved ? ", without the password it had (Save a copy to send can put one on)" : ""}`);
       return true;
     } catch (error) {
       console.error(error);
@@ -297,7 +305,7 @@ export class DocTab {
 
   /** Saves a Word document (.docx) worked out from the PDF, with what was added to it. */
   /** Saves a copy to send: the document as Save would write it, smaller and/or with its form filled in for good. */
-  async saveCopy(options: CompressOptions | null, flatten: boolean): Promise<void> {
+  async saveCopy(options: CompressOptions | null, flatten: boolean, ocr = false, password = ""): Promise<void> {
     const file = this.file;
     if (!file || !this.viewer.pdf) return;
     this.overlay.finishEdit();
@@ -306,14 +314,31 @@ export class DocTab {
       if (!path) return;
       this.hooks.toast(options ? "Making it smaller…" : "Saving…");
       const before = await this.build();
-      const filled = flatten ? await flattenForm(before) : before;
-      const after = options ? await compressPdf(filled, options) : filled;
+      let filled = flatten ? await flattenForm(before) : before;
+      let read = 0;
+      // Read before pictures are made smaller, so the OCR sees them sharp.
+      if (ocr) ({ bytes: filled, pages: read } = await this.searchable(filled));
+      const smaller = options ? await compressPdf(filled, options) : filled;
+      const after = password ? await addPassword(smaller, password) : smaller;
       await writePath(path, after);
       const mb = (n: number) => `${(n / 1048576).toFixed(n < 1048576 ? 2 : 1)} MB`;
-      this.hooks.toast(!options ? `Saved ${baseName(path)}` : after.length < before.length ? `Saved ${baseName(path)}: ${mb(before.length)} → ${mb(after.length)}` : `Saved ${baseName(path)}. It couldn't be made smaller: it has no big pictures.`);
+      const scans = ocr ? (read ? ` ${read} scanned ${read === 1 ? "page is" : "pages are"} now searchable.` : " No scanned pages needed reading.") : "";
+      this.hooks.toast((password ? "Protected with a password. " : "") + (!options ? `Saved ${baseName(path)}.` : after.length < before.length ? `Saved ${baseName(path)}: ${mb(before.length)} → ${mb(after.length)}.` : `Saved ${baseName(path)}. It couldn't be made smaller: it has no big pictures.`) + scans);
     } catch (error) {
       console.error(error);
       this.hooks.toast(`Could not make a smaller copy: ${String(error)}`, "error");
+    }
+  }
+
+  /** The PDF with the text on its scanned pages read (Windows' OCR) and put in invisibly. */
+  async searchable(bytes: Uint8Array): Promise<{ bytes: Uint8Array; pages: number }> {
+    const pdf = await this.viewer.load(bytes);
+    try {
+      return await makeSearchable(bytes, pdf, readTextIn, (done, total) => {
+        if (done < total) this.hooks.toast(`Reading the text in scanned pages… ${done + 1} of ${total}`);
+      });
+    } finally {
+      void pdf.loadingTask.destroy();
     }
   }
 

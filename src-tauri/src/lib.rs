@@ -1,3 +1,5 @@
+mod ocr;
+
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -141,7 +143,8 @@ pub fn run() {
             read_file,
             read_system_font,
             write_file,
-            open_url
+            open_url,
+            ocr::ocr_image
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

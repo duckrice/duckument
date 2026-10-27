@@ -52,6 +52,12 @@ export async function pickPdf(): Promise<OpenedFile | null> {
   return file ? fromFile(file) : null;
 }
 
+/** The words in a PNG picture, read by Windows' own OCR: text and box in pixels. */
+export function readTextIn(png: Uint8Array): Promise<[string, number, number, number, number][]> {
+  if (!isDesktop) return Promise.reject(new Error("Reading text in scans needs the Windows app."));
+  return invoke("ocr_image", png);
+}
+
 /** Several PDFs at once (in the browser, one). */
 export async function pickPdfs(): Promise<OpenedFile[]> {
   if (isDesktop) {

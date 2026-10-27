@@ -1,6 +1,6 @@
 [package]
 name = "duckument"
-version = "1.8.0"
+version = "1.9.0"
 description = "A free PDF editor for signing, filling in and marking up documents"
 authors = ["Duckrice"]
 edition = "2021"
@@ -23,6 +23,10 @@ tauri-plugin-updater = "2"
 percent-encoding = "2"
 # Needed by tauri::generate_context! once plugins have settings in tauri.conf.json.
 serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+# Windows' own OCR, for making scanned pages searchable.
+windows = { version = "0.62", features = ["Foundation", "Foundation_Collections", "Graphics_Imaging", "Media_Ocr", "Storage_Streams"] }
 
 [profile.release]
 codegen-units = 1

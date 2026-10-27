@@ -1,4 +1,5 @@
 import { COMPRESS_LEVELS, compressPdf, flattenForm } from "./compress";
+import { addPassword } from "./password";
 import "./generated/annotation-layer.css";
 import "./styles.css";
 
@@ -192,6 +193,10 @@ function askCompress() {
   // Ticked when a form was filled in here.
   const hasForm = [...tab.viewer.sources.values()].some((pdf) => pdf.annotationStorage.size > 0);
   const flatten = h("input", { type: "checkbox", checked: hasForm }) as HTMLInputElement;
+  const ocr = h("input", { type: "checkbox" }) as HTMLInputElement;
+  const password = h("input", { type: "password", class: "text-input", autocomplete: "new-password", placeholder: "None" }) as HTMLInputElement;
+  const again = h("input", { type: "password", class: "text-input", autocomplete: "new-password", placeholder: "Type it again" }) as HTMLInputElement;
+  again.addEventListener("input", () => again.setCustomValidity(""));
   const form = h(
     "form",
     { method: "dialog" },
@@ -201,11 +206,20 @@ function askCompress() {
     ...levels.map(([, label], i) => h("label", { class: "check-field" }, radios[i], ` ${label}`)),
     h("p", {}, "Form:"),
     h("label", { class: "check-field" }, flatten, " Fill in the form for good (the answers become part of the page and can't be changed)"),
+    h("p", {}, "Scans:"),
+    h("label", { class: "check-field" }, ocr, " Make scanned pages searchable (the text in them is read, so it can be found and copied)"),
+    h("label", { class: "field" }, "Password to open it (only people who know it can read it)", password, again),
     h("div", { class: "dialog-footer" }, h("button", { type: "button", class: "btn", onclick: () => dialog.close() }, "Cancel"), h("button", { type: "submit", class: "btn primary" }, "Save…")),
   );
-  form.addEventListener("submit", () => {
+  form.addEventListener("submit", (event) => {
+    if (password.value !== again.value) {
+      event.preventDefault();
+      again.setCustomValidity("The two passwords aren't the same.");
+      again.reportValidity();
+      return;
+    }
     const level = radios.find((r) => r.checked)!.value;
-    void tab.saveCopy(level === "none" ? null : COMPRESS_LEVELS[level as keyof typeof COMPRESS_LEVELS], flatten.checked);
+    void tab.saveCopy(level === "none" ? null : COMPRESS_LEVELS[level as keyof typeof COMPRESS_LEVELS], flatten.checked, ocr.checked, password.value);
   });
   const dialog = h("dialog", { class: "dialog" }, form);
   dialog.addEventListener("close", () => dialog.remove());
@@ -581,6 +595,8 @@ if (debug) {
       build: () => active!.build(),
       compress: (bytes: Uint8Array, level: keyof typeof COMPRESS_LEVELS) => compressPdf(bytes, COMPRESS_LEVELS[level]),
       flatten: (bytes: Uint8Array) => flattenForm(bytes),
+      searchable: (bytes: Uint8Array) => active!.searchable(bytes),
+      protect: (bytes: Uint8Array, password: string) => addPassword(bytes, password),
       get tab() {
         return active;
       },

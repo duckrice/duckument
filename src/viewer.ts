@@ -202,6 +202,9 @@ export class Viewer {
     return `${this.scale.toFixed(4)}@${window.devicePixelRatio}`;
   }
 
+  /** Passwords typed to open PDFs, to take them off again when saving. */
+  readonly passwords: string[] = [];
+
   /** Opens a PDF, asking for its password if it has one. Throws OpenCancelled if the user gives up. */
   async load(bytes: Uint8Array): Promise<PDFDocumentProxy> {
     // pdf.js takes ownership of the buffer it is given, so hand it a copy.
@@ -218,7 +221,10 @@ export class Viewer {
     task.onPassword = (submit: (password: string) => void, reason: number) => {
       void this.hooks.askPassword(reason === PasswordResponses.INCORRECT_PASSWORD).then((password) => {
         if (password === null) void task.destroy();
-        else submit(password);
+        else {
+          this.passwords.push(password);
+          submit(password);
+        }
       });
     };
     try {
