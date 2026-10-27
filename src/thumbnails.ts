@@ -246,6 +246,13 @@ export class Thumbnails {
     window.addEventListener("pointerup", up);
   }
 
+  /** Where pages dropped at this point of the window would go, or null when it isn't over the page list. */
+  dropTarget(clientX: number, clientY: number): number | null {
+    const rect = this.list.getBoundingClientRect();
+    if (!rect.width || clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return null;
+    return this.dropIndex(clientY);
+  }
+
   /** The position a page dropped at this height would take. */
   private dropIndex(clientY: number): number {
     const thumbs = [...this.list.querySelectorAll<HTMLElement>(".thumb")];

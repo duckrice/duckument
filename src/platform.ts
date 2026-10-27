@@ -52,6 +52,16 @@ export async function pickPdf(): Promise<OpenedFile | null> {
   return file ? fromFile(file) : null;
 }
 
+/** Several PDFs at once (in the browser, one). */
+export async function pickPdfs(): Promise<OpenedFile[]> {
+  if (isDesktop) {
+    const paths = await open({ multiple: true, directory: false, filters: PDF_FILTER });
+    return Promise.all((paths ?? []).map(readPath));
+  }
+  const file = await pickInBrowser("application/pdf,.pdf");
+  return file ? [await fromFile(file)] : [];
+}
+
 export async function pickImage(): Promise<Blob | null> {
   if (isDesktop) {
     const path = await open({
@@ -121,10 +131,13 @@ export function setTitle(title: string) {
 }
 
 /** Calls `handler` with the paths of files dropped onto the window. */
-export function onPathsDropped(handler: (paths: string[]) => void) {
+/** Files dropped on the window, and where (in CSS pixels in the window). */
+export function onPathsDropped(handler: (paths: string[], at: { x: number; y: number }) => void) {
   if (!isDesktop) return;
   void getCurrentWebview().onDragDropEvent((event) => {
-    if (event.payload.type === "drop") handler(event.payload.paths);
+    if (event.payload.type !== "drop") return;
+    const { x, y } = event.payload.position;
+    handler(event.payload.paths, { x: x / devicePixelRatio, y: y / devicePixelRatio });
   });
 }
 

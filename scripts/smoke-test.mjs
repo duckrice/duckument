@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import JSZip from "jszip";
+import { PDFDocument, PDFName, StandardFonts } from "pdf-lib";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const exe = join(root, "src-tauri", "target", "release", "duckument.exe");
@@ -485,6 +486,14 @@ await session(sample("flat.pdf"), 9341, async (app) => {
 
   await app.evaluate(`window.__fpe.addPdf(${JSON.stringify(sample("form.pdf"))}, 0)`);
   check("merges another PDF's pages", (await pages())[0] === "1:1" && (await pages()).length === 13);
+  // Several at once go in in the order chosen (the last is put in first, so it gets the next source id).
+  await app.evaluate(`window.__fpe.addPdf(${JSON.stringify([sample("search.pdf"), sample("flat.pdf")])}, 1)`);
+  const merged = await pages();
+  check("several PDFs go in at once, in order", merged[1] === "3:1" && merged.indexOf("2:1") > 1 && merged.length > 14, merged.slice(0, 6).join());
+  const dropAt = await app.evaluate(`(() => { const t = document.querySelectorAll(".thumb")[2].getBoundingClientRect(); return [window.__fpe.tab.thumbnails.dropTarget(t.left + 10, t.top + 2), window.__fpe.tab.thumbnails.dropTarget(t.right + 400, t.top + 2)]; })()`);
+  check("a PDF dropped on the page list goes in where it was dropped", JSON.stringify(dropAt) === "[2,null]", JSON.stringify(dropAt));
+  await app.key("z", 90, CTRL);
+  await app.key("z", 90, CTRL);
   // Pages are drawn when they come into view.
   await app.scrollTo(0);
   check("the merged page's form fields work", await app.waitFor(`document.querySelectorAll(".page")[0].querySelectorAll(".annotationLayer input").length > 0`, 8000));
@@ -966,6 +975,63 @@ await session(sample("flat.pdf"), 9348, async (app) => {
   check("saving takes the text on a redacted page out of the file", before > 0 && after === 0, `${before} → ${after}`);
   const second = await app.evaluate(`(async () => (await window.__fpe.viewer.pageText(1)).length)()`);
   check("other pages keep their text", second > 0, String(second));
+});
+
+// Save a smaller copy: big pictures (a JPEG photo and a PNG screenshot) are scaled down; text stays.
+await session(sample("flat.pdf"), 9353, async (app) => {
+  await app.debugHandle();
+  await app.waitFor(`document.querySelectorAll(".page").length > 0`, 8000);
+  // The app draws the pictures (noisy, so they don't compress well as they are).
+  const pictures = await app.evaluate(`(async () => {
+    const canvas = new OffscreenCanvas(2400, 1800);
+    const ctx = canvas.getContext("2d");
+    const data = ctx.createImageData(2400, 1800);
+    for (let i = 0; i < data.data.length; i += 4) { const v = (i / 4) % 2400 / 10 + Math.random() * 60; data.data[i] = v; data.data[i + 1] = 255 - v; data.data[i + 2] = 128; data.data[i + 3] = 255; }
+    ctx.putImageData(data, 0, 0);
+    const b64 = async (type, quality) => { const bytes = new Uint8Array(await (await canvas.convertToBlob({ type, quality })).arrayBuffer()); let s = ""; for (let i = 0; i < bytes.length; i += 32768) s += String.fromCharCode(...bytes.subarray(i, i + 32768)); return btoa(s); };
+    return [await b64("image/jpeg", 0.97), await b64("image/png")];
+  })()`);
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (const image of [await doc.embedJpg(Buffer.from(pictures[0], "base64")), await doc.embedPng(Buffer.from(pictures[1], "base64"))]) {
+    const page = doc.addPage([595, 842]);
+    page.drawImage(image, { x: 40, y: 300, width: 515, height: 386 });
+    page.drawText("Holiday photos", { x: 40, y: 760, size: 24, font });
+  }
+  const big = await doc.save();
+  const small = Buffer.from(
+    await app.evaluate(`(async () => {
+      const bytes = Uint8Array.from(atob(${JSON.stringify(Buffer.from(big).toString("base64"))}), (ch) => ch.charCodeAt(0));
+      const out = await window.__fpe.compress(bytes, "strong");
+      let s = ""; for (let i = 0; i < out.length; i += 32768) s += String.fromCharCode(...out.subarray(i, i + 32768)); return btoa(s);
+    })()`),
+    "base64",
+  );
+  check("Save a smaller copy makes a PDF with big pictures much smaller", small.length < big.length / 3, `${big.length} → ${small.length}`);
+  const shrunk = await PDFDocument.load(small);
+  const widths = shrunk.context.enumerateIndirectObjects().filter(([, o]) => o.dict?.get(PDFName.of("Subtype")) === PDFName.of("Image")).map(([, o]) => o.dict.get(PDFName.of("Width")).asNumber());
+  check("its pictures are scaled down, both the JPEG and the PNG one", JSON.stringify(widths) === "[1200,1200]", JSON.stringify(widths));
+  const text = await pdfjs.getDocument({ data: new Uint8Array(small) }).promise.then((p) => p.getPage(2)).then((p) => p.getTextContent());
+  check("and its text is still text", text.items.map((i) => i.str).join("") === "Holiday photos");
+});
+
+// A form filled in for good: the answer is on the page, and there are no fields left to change.
+await session(sample("form.pdf"), 9354, async (app) => {
+  await app.debugHandle();
+  await app.waitFor(`document.querySelectorAll(".annotationLayer input[type=text]").length > 0`, 8000);
+  await app.clickOn(".annotationLayer input[type=text]");
+  await app.type("Ola Flat");
+  await app.key("Tab", 9);
+  const flat = Buffer.from(
+    await app.evaluate(`(async () => {
+      const out = await window.__fpe.flatten(await window.__fpe.build());
+      let s = ""; for (let i = 0; i < out.length; i += 32768) s += String.fromCharCode(...out.subarray(i, i + 32768)); return btoa(s);
+    })()`),
+    "base64",
+  );
+  const fields = (await PDFDocument.load(flat)).getForm().getFields().length;
+  const words = (await pdfjs.getDocument({ data: new Uint8Array(flat) }).promise.then((p) => p.getPage(1)).then((p) => p.getTextContent())).items.map((i) => i.str).join(" ");
+  check("filling in a form for good keeps the answer on the page, with no fields left", fields === 0 && words.includes("Ola Flat"), `${fields} fields; ${words.slice(0, 120)}`);
 });
 
 console.log(failures ? `\n${failures} check(s) failed` : "\nAll checks passed");

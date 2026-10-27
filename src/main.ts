@@ -1,3 +1,4 @@
+import { COMPRESS_LEVELS, compressPdf, flattenForm } from "./compress";
 import "./generated/annotation-layer.css";
 import "./styles.css";
 
@@ -76,6 +77,7 @@ const toolbar = new Toolbar(nothingOpen, settings, {
   save: () => void active?.save(false),
   saveAs: () => void active?.save(true),
   saveAsWord: () => void active?.saveAsWord(),
+  compress: () => askCompress(),
   insertImage: () => void active?.insertImage(),
   pageNumbers: () => void askPageNumbers(),
   watermark: () => void askWatermark(),
@@ -169,6 +171,41 @@ function askPageNumbers() {
       text: (custom.querySelector("input") as HTMLInputElement).value,
     });
     toast(`Numbered ${count} ${count === 1 ? "page" : "pages"}.`);
+  });
+  const dialog = h("dialog", { class: "dialog" }, form);
+  dialog.addEventListener("close", () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
+/** Asks how the copy to send should be (smaller, form filled in for good), then saves it. */
+function askCompress() {
+  const tab = active;
+  if (!tab?.viewer.pdf) return;
+  const levels: [keyof typeof COMPRESS_LEVELS | "none", string][] = [
+    ["strong", "Smallest, for e-mail"],
+    ["medium", "Medium, for reading on a screen"],
+    ["light", "A little, still good for printing"],
+    ["none", "Keep the pictures as they are"],
+  ];
+  const radios = levels.map(([value], i) => h("input", { type: "radio", name: "compress-level", value, checked: i === 0 }) as HTMLInputElement);
+  // Ticked when a form was filled in here.
+  const hasForm = [...tab.viewer.sources.values()].some((pdf) => pdf.annotationStorage.size > 0);
+  const flatten = h("input", { type: "checkbox", checked: hasForm }) as HTMLInputElement;
+  const form = h(
+    "form",
+    { method: "dialog" },
+    h("h2", {}, "Save a copy to send"),
+    h("p", {}, "The document you have open isn't changed."),
+    h("p", {}, "Pictures and scanned pages:"),
+    ...levels.map(([, label], i) => h("label", { class: "check-field" }, radios[i], ` ${label}`)),
+    h("p", {}, "Form:"),
+    h("label", { class: "check-field" }, flatten, " Fill in the form for good (the answers become part of the page and can't be changed)"),
+    h("div", { class: "dialog-footer" }, h("button", { type: "button", class: "btn", onclick: () => dialog.close() }, "Cancel"), h("button", { type: "submit", class: "btn primary" }, "Save…")),
+  );
+  form.addEventListener("submit", () => {
+    const level = radios.find((r) => r.checked)!.value;
+    void tab.saveCopy(level === "none" ? null : COMPRESS_LEVELS[level as keyof typeof COMPRESS_LEVELS], flatten.checked);
   });
   const dialog = h("dialog", { class: "dialog" }, form);
   dialog.addEventListener("close", () => dialog.remove());
@@ -486,7 +523,14 @@ const openPaths = (paths: string[]) => {
   })();
 };
 
-onPathsDropped(openPaths);
+// PDFs dropped on the page list go in among the pages there, as in Acrobat; elsewhere they open.
+onPathsDropped((paths, at) => {
+  const index = active?.thumbnails.dropTarget(at.x, at.y) ?? null;
+  const pdfs = paths.filter((p) => p.toLowerCase().endsWith(".pdf"));
+  if (index === null || !pdfs.length) return openPaths(paths);
+  const tab = active!;
+  void Promise.all(pdfs.map(readPath)).then((files) => tab.addPdfFiles(files, index));
+});
 onFilesOpened(openPaths);
 
 if (!isDesktop) {
@@ -535,12 +579,14 @@ if (debug) {
         return tabs.map((tab) => ({ name: tab.name, path: tab.file?.path ?? null, dirty: tab.dirty, active: tab === active }));
       },
       build: () => active!.build(),
+      compress: (bytes: Uint8Array, level: keyof typeof COMPRESS_LEVELS) => compressPdf(bytes, COMPRESS_LEVELS[level]),
+      flatten: (bytes: Uint8Array) => flattenForm(bytes),
       get tab() {
         return active;
       },
       /** Merges a file the test supplies, as "Add PDF…" would after the file dialog. */
-      async addPdf(path: string, at: number) {
-        await active!.addPdfFile(await readPath(path), at);
+      async addPdf(path: string | string[], at: number) {
+        await active!.addPdfFiles(await Promise.all([path].flat().map(readPath)), at);
       },
       activate: (index: number) => activate(tabs[index]),
       /** Shows what saving would produce, in a new tab. */

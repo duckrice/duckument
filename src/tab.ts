@@ -11,12 +11,13 @@ import { watermarkItems, type WatermarkOptions } from "./watermark";
 import { stampItem } from "./stamps";
 import { Overlay } from "./overlay";
 import { blankPage, deletePages, insertPages, itemsFor, movePages, pagesOf, rotatePages } from "./pageops";
-import { WORD_FILTER, baseName, isDesktop, pickImage, pickPdf, pickSavePath, readSystemFont, writePath, type OpenedFile } from "./platform";
+import { WORD_FILTER, baseName, isDesktop, pickImage, pickPdfs, pickSavePath, readSystemFont, writePath, type OpenedFile } from "./platform";
 import { pdfToDocx } from "./pdfword";
 import type { Settings } from "./settings";
 import { Store } from "./store";
 import { baseline, measureWidth, rasterizeText } from "./textmetrics";
 import { Thumbnails } from "./thumbnails";
+import { compressPdf, flattenForm, type CompressOptions } from "./compress";
 import { OpenCancelled, PRIMARY, Viewer } from "./viewer";
 
 export interface TabHooks {
@@ -169,14 +170,20 @@ export class DocTab {
 
   /** Asks for a PDF and puts its pages in at position `at`. */
   async addPdf(at: number) {
-    let file: OpenedFile | null;
+    let files: OpenedFile[];
     try {
-      file = await pickPdf();
+      files = await pickPdfs();
     } catch (error) {
       this.hooks.toast(String(error), "error");
       return;
     }
-    if (file) await this.addPdfFile(file, at);
+    await this.addPdfFiles(files, at);
+  }
+
+  /** Puts in the pages of several PDFs at `at`, in the order given. */
+  async addPdfFiles(files: OpenedFile[], at: number) {
+    // Each goes in at the same place, last first, so they end up in order.
+    for (const file of [...files].reverse()) await this.addPdfFile(file, at);
   }
 
   /** Puts the pages of an opened PDF file in at position `at`. */
@@ -289,6 +296,27 @@ export class DocTab {
   }
 
   /** Saves a Word document (.docx) worked out from the PDF, with what was added to it. */
+  /** Saves a copy to send: the document as Save would write it, smaller and/or with its form filled in for good. */
+  async saveCopy(options: CompressOptions | null, flatten: boolean): Promise<void> {
+    const file = this.file;
+    if (!file || !this.viewer.pdf) return;
+    this.overlay.finishEdit();
+    try {
+      const path = await pickSavePath((file.path ?? file.name).replace(/(\.pdf)?$/i, options ? "-smaller.pdf" : "-filled.pdf"));
+      if (!path) return;
+      this.hooks.toast(options ? "Making it smaller…" : "Saving…");
+      const before = await this.build();
+      const filled = flatten ? await flattenForm(before) : before;
+      const after = options ? await compressPdf(filled, options) : filled;
+      await writePath(path, after);
+      const mb = (n: number) => `${(n / 1048576).toFixed(n < 1048576 ? 2 : 1)} MB`;
+      this.hooks.toast(!options ? `Saved ${baseName(path)}` : after.length < before.length ? `Saved ${baseName(path)}: ${mb(before.length)} → ${mb(after.length)}` : `Saved ${baseName(path)}. It couldn't be made smaller: it has no big pictures.`);
+    } catch (error) {
+      console.error(error);
+      this.hooks.toast(`Could not make a smaller copy: ${String(error)}`, "error");
+    }
+  }
+
   async saveAsWord(): Promise<boolean> {
     const file = this.file;
     if (!file || !this.viewer.pdf) return false;

@@ -37,6 +37,7 @@ const PATHS = {
   down: '<path d="m6 9 6 6 6-6"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
   caret: '<path d="m7 10 5 5 5-5"/>',
+  compress: '<path d="M4 4l5 5M20 4l-5 5M4 20l5-5M20 20l-5-5"/><path d="M9 5v4H5M15 5v4h4M9 19v-4H5M15 19v-4h4"/>',
   document: '<path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
 } as const;
 
