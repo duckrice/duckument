@@ -24,7 +24,7 @@ export async function offerUpdate(host: HTMLElement, hooks: UpdateHooks) {
   }
   if (!update) return;
 
-  const message = h("span", { class: "update-message" }, `Duckument ${update.version} is available.`);
+  const message = h("span", { class: "update-message", title: update.body ?? "" }, `Duckument ${update.version} is available.${update.body && !/^\S+ [\d.]+$/.test(update.body) ? ` New: ${update.body}` : ""}`);
   const install = h("button", { type: "button", class: "btn primary small" }, "Update and restart");
   const later = h("button", { type: "button", class: "btn subtle" }, "Later");
   const bar = h("div", { class: "update-bar", role: "status" }, message, install, later);
