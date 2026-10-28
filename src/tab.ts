@@ -10,8 +10,8 @@ import { pageNumberItems, type PageNumberOptions } from "./pagenumbers";
 import { watermarkItems, type WatermarkOptions } from "./watermark";
 import { stampItem } from "./stamps";
 import { Overlay } from "./overlay";
-import { blankPage, deletePages, insertPages, itemsFor, movePages, pagesOf, rotatePages } from "./pageops";
-import { WORD_FILTER, baseName, isDesktop, pickImage, pickPdfs, pickSavePath, readTextIn, readSystemFont, writePath, type OpenedFile } from "./platform";
+import { blankPage, deletePages, insertPages, splitGroups, itemsFor, movePages, pagesOf, rotatePages } from "./pageops";
+import { WORD_FILTER, baseName, existingFiles, isDesktop, pickImage, pickPdfs, pickSavePath, readTextIn, readSystemFont, writePath, type OpenedFile } from "./platform";
 import { pdfToDocx } from "./pdfword";
 import type { Settings } from "./settings";
 import { Store } from "./store";
@@ -27,6 +27,8 @@ export interface TabHooks {
   changed(tab: DocTab): void;
   toast(message: string, kind?: "info" | "error"): void;
   askPassword(retry: boolean): Promise<string | null>;
+  /** How to split `total` pages into files (`selected` of them chosen): every N pages, or at the chosen ones. */
+  askSplit(total: number, selected: number): Promise<{ every: number } | { atSelected: true } | null>;
 }
 
 interface FileInfo {
@@ -221,12 +223,37 @@ export class DocTab {
     }
   }
 
+  /** Saves the document as several PDFs: every N pages, or a new file at each of the chosen pages. */
+  async splitPages(selected: string[]) {
+    if (!this.file) return;
+    this.overlay.finishEdit();
+    const ids = this.store.pages.map((page) => page.id);
+    const how = await this.hooks.askSplit(ids.length, selected.length);
+    if (!how) return;
+    const groups = splitGroups(ids, "every" in how ? how : { starts: selected });
+    if (groups.length < 2) return this.hooks.toast("That makes just one file: choose fewer pages per file, or select where new files start.");
+    try {
+      const path = await pickSavePath((this.file.path ?? this.file.name).replace(/(\.pdf)?$/i, "-1.pdf"));
+      if (!path) return;
+      // The others are numbered on from the name chosen for the first.
+      const base = path.replace(/(-1)?\.pdf$/i, "");
+      const paths = groups.map((_, i) => `${base}-${i + 1}.pdf`);
+      const taken = (await existingFiles(paths.slice(1))).findIndex(Boolean);
+      if (taken >= 0) return this.hooks.toast(`${baseName(paths[taken + 1])} already exists, so nothing was saved. Choose another name.`, "error");
+      for (const [i, group] of groups.entries()) await writePath(paths[i], await this.buildPages(group));
+      this.hooks.toast(`Saved ${groups.length} files, ${baseName(paths[0])} to ${baseName(paths[paths.length - 1])}`);
+    } catch (error) {
+      console.error(error);
+      this.hooks.toast(error instanceof EncryptedPdfError ? error.message : `Could not save: ${String(error)}`, "error");
+    }
+  }
+
   // ---- saving -------------------------------------------------------------
 
-  /** Every source PDF, with the form fields filled in on it written into it. */
   /** Whether saving took a password (or a lock) off one of the PDFs, to say so. */
   private passwordRemoved = false;
 
+  /** Every source PDF, with the form fields filled in on it written into it. */
   private async sourcesWithForms(): Promise<SourceBytes> {
     const out: SourceBytes = new Map();
     for (const [id, bytes] of this.sourceBytes) {

@@ -45,6 +45,7 @@ const hooks: TabHooks = {
   },
   toast,
   askPassword,
+  askSplit,
 };
 
 // Stands in for a document while none is open, so the toolbar always has one.
@@ -177,6 +178,36 @@ function askPageNumbers() {
   dialog.addEventListener("close", () => dialog.remove());
   document.body.append(dialog);
   dialog.showModal();
+}
+
+/** Asks how to split a PDF into files. */
+function askSplit(total: number, selected: number): Promise<{ every: number } | { atSelected: true } | null> {
+  return new Promise((resolve) => {
+    let answer: { every: number } | { atSelected: true } | null = null;
+    const every = h("input", { type: "radio", name: "split-how", checked: selected < 2 }) as HTMLInputElement;
+    const count = h("input", { type: "number", class: "text-input", min: 1, max: Math.max(1, total - 1), value: 1, style: "width: 5em" }) as HTMLInputElement;
+    const atSelected = h("input", { type: "radio", name: "split-how", checked: selected >= 2, disabled: selected < 2 }) as HTMLInputElement;
+    count.addEventListener("focus", () => (every.checked = true));
+    const form = h(
+      "form",
+      { method: "dialog" },
+      h("h2", {}, "Split into several PDFs"),
+      h("p", {}, `The ${total} pages are saved as numbered files (name-1.pdf, name-2.pdf, …). The document you have open isn't changed.`),
+      h("label", { class: "check-field" }, every, " A new file every ", count, " pages"),
+      h("label", { class: "check-field" }, atSelected, selected >= 2 ? ` A new file at each of the ${selected} selected pages` : " A new file at each selected page (select pages in the page list first, Ctrl+click for more)"),
+      h("div", { class: "dialog-footer" }, h("button", { type: "button", class: "btn", onclick: () => dialog.close() }, "Cancel"), h("button", { type: "submit", class: "btn primary" }, "Save…")),
+    );
+    form.addEventListener("submit", () => {
+      answer = atSelected.checked ? { atSelected: true } : { every: Math.max(1, Math.round(Number(count.value) || 1)) };
+    });
+    const dialog = h("dialog", { class: "dialog" }, form);
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      resolve(answer);
+    });
+    document.body.append(dialog);
+    dialog.showModal();
+  });
 }
 
 /** Asks how the copy to send should be (smaller, form filled in for good), then saves it. */

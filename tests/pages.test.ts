@@ -3,7 +3,7 @@ import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import { assemblePdf, type ExportEnv, type Matrix } from "../src/export";
 import type { Item, PageRef } from "../src/model";
-import { blankPage, deletePages, insertPages, itemsFor, movePages, pagesOf, rotatePages } from "../src/pageops";
+import { blankPage, deletePages, insertPages, itemsFor, movePages, pagesOf, rotatePages, splitGroups } from "../src/pageops";
 import type { DocState } from "../src/store";
 
 const mark = (page: number): Item => ({ id: `m${page}`, type: "check", page, x: 10, y: 10, w: 12, h: 12, stroke: "#000000", strokeWidth: 1 });
@@ -151,5 +151,17 @@ describe("assemblePdf", () => {
     const [x, y] = upright.convertToViewportPoint(run.transform[4], run.transform[5]);
     expect(x).toBeCloseTo(50, 3);
     expect(y).toBeCloseTo(70, 3);
+  });
+});
+
+describe("splitting into files", () => {
+  const ids = ["a", "b", "c", "d", "e"];
+  it("every N pages, the last file taking what's left", () => {
+    expect(splitGroups(ids, { every: 2 })).toEqual([["a", "b"], ["c", "d"], ["e"]]);
+    expect(splitGroups(ids, { every: 1 })).toHaveLength(5);
+  });
+  it("a new file at each chosen page, the first starting at page 1", () => {
+    expect(splitGroups(ids, { starts: ["c", "e"] })).toEqual([["a", "b"], ["c", "d"], ["e"]]);
+    expect(splitGroups(ids, { starts: ["a"] })).toEqual([ids]);
   });
 });

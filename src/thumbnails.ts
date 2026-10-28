@@ -18,6 +18,7 @@ export interface ThumbnailHost {
   insertBlankPage(at: number): void;
   addPdf(at: number): Promise<void>;
   extractPages(ids: string[]): Promise<void>;
+  splitPages(ids: string[]): Promise<void>;
 }
 
 /** Width of a thumbnail picture in CSS pixels. */
@@ -55,6 +56,7 @@ export class Thumbnails {
       button("pageAdd", "Insert a blank page", () => host.insertBlankPage(this.insertionPoint())),
       button("merge", "Add pages from another PDF", () => void host.addPdf(this.insertionPoint())),
       button("extract", "Save the selected pages as a new PDF", () => void host.extractPages(this.targets())),
+      button("split", "Split into several PDFs: every few pages, or where the selected pages are", () => void host.splitPages([...this.selected])),
     );
     this.list = h("div", { class: "thumb-list", tabindex: 0, role: "listbox", "aria-label": "Pages", "aria-multiselectable": "true" });
     this.el = h("aside", { class: "thumbs" }, tools, this.list);

@@ -512,6 +512,10 @@ await session(sample("flat.pdf"), 9341, async (app) => {
     return bytes.length;
   })()`);
   check("extracts pages as a new PDF", extracted > 500, String(extracted));
+  // Split: the button asks how (the Save dialog after it is Windows' own, so the test stops at Cancel).
+  await app.clickOn(`.thumb-tools [title^="Split into several PDFs"]`);
+  check("Split asks how to split the pages", await app.waitFor(`document.querySelector("dialog[open] h2")?.textContent === "Split into several PDFs"`, 3000));
+  await app.evaluate(`[...document.querySelectorAll("dialog[open] .btn")].find((b) => b.textContent === "Cancel").click()`);
 
   for (let i = 0; i < 6; i++) await app.key("z", 90, CTRL);
   check("undo brings the original pages back", (await pages()).join() === Array.from({ length: 12 }, (_, i) => `0:${i + 1}`).join(), (await pages()).join());

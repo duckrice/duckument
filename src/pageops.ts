@@ -29,6 +29,16 @@ function rearranged(state: DocState, pages: PageRef[]): DocState {
  * Moves the pages with the given ids so they sit, in their current order,
  * before the page that is at position `to` now (or at the end).
  */
+/** Pages (by id) in groups for separate files: a new group every `every` pages, or at each of `starts`. */
+export function splitGroups(ids: string[], how: { every: number } | { starts: string[] }): string[][] {
+  const groups: string[][] = [];
+  ids.forEach((id, i) => {
+    if (!groups.length || ("every" in how ? i % how.every === 0 : how.starts.includes(id))) groups.push([]);
+    groups[groups.length - 1].push(id);
+  });
+  return groups;
+}
+
 export function movePages(state: DocState, ids: string[], to: number): DocState {
   const moving = state.pages.filter((page) => ids.includes(page.id));
   if (!moving.length) return state;
