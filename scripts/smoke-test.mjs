@@ -218,6 +218,7 @@ const CTRL = 2;
 
 await session(sample("form.pdf"), 9333, async (app) => {
   check("opens the file given on the command line", (await app.evaluate("document.title")).startsWith("form.pdf"));
+  check("there is a Save as button beside Save", (await app.count(`.tb[title^="Save as…"]`)) === 1);
   check("startup_files reports that file", (await app.invoke("startup_files"))?.[0]?.endsWith("form.pdf"));
   check(
     "renders the page",

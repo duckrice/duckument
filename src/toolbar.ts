@@ -109,6 +109,7 @@ export class Toolbar {
     const pagesButton = button("pages", "Show or hide the page sidebar", actions.togglePages);
     this.pagesButton = pagesButton;
     this.saveButton = button("save", "Save (Ctrl+S)", actions.save, "Save");
+    const saveAsButton = button("saveAs", "Save as… another name or place (F12)", actions.saveAs);
     const wordButton = button("document", "Save as a Word document (.docx), to edit the text in Word or DuckWriter", actions.saveAsWord, "Word");
     const compressButton = button("compress", "Save a copy to send: smaller, and with the form filled in for good", actions.compress);
     this.undoButton = button("undo", "Undo (Ctrl+Z)", () => this.store.undo());
@@ -139,12 +140,12 @@ export class Toolbar {
 
     // select, text, edit text, highlight, comment | sign | check, cross | shapes... | picture
     const [select, text, editText, markup, note, check, cross, ...shapes] = tools;
-    this.docButtons = [pagesButton, this.saveButton, wordButton, compressButton, ...tools, this.signButton, imageButton, numbersButton, watermarkButton, stampButton, zoomOut, zoomIn, this.zoomLabel];
+    this.docButtons = [pagesButton, this.saveButton, saveAsButton, wordButton, compressButton, ...tools, this.signButton, imageButton, numbersButton, watermarkButton, stampButton, zoomOut, zoomIn, this.zoomLabel];
 
     const main = h(
       "div",
       { class: "toolbar" },
-      h("div", { class: "group" }, pagesButton, openButton, this.saveButton, wordButton, compressButton),
+      h("div", { class: "group" }, pagesButton, openButton, this.saveButton, saveAsButton, wordButton, compressButton),
       h("div", { class: "group" }, this.undoButton, this.redoButton),
       h("div", { class: "group" }, select, text, editText, markup, note, h("div", { class: "menu-anchor" }, this.signButton, this.signMenu), check, cross),
       h("div", { class: "group" }, ...shapes, imageButton, numbersButton, watermarkButton, stampButton),

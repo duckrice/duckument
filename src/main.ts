@@ -551,6 +551,9 @@ window.addEventListener("keydown", (event) => {
     else if (key === "0") viewer?.zoomToFitWidth();
     else return;
     event.preventDefault();
+  } else if (event.key === "F12" && active) {
+    void active.save(true);
+    event.preventDefault();
   } else if (event.key === "F3" && search.isOpen) {
     search.step(event.shiftKey ? -1 : 1);
     event.preventDefault();
