@@ -2,7 +2,30 @@
 // written with object streams. Text and drawings stay as they are, so they stay sharp. Pictures
 // this can't safely redo (CMYK, masks, 16-bit, unusual compressions) are left alone.
 
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, decodePDFRawStream } from "pdf-lib";
+import {
+  PDFArray,
+  PDFCheckBox,
+  PDFDict,
+  PDFDocument,
+  PDFDropdown,
+  PDFName,
+  PDFNumber,
+  PDFOptionList,
+  PDFRadioGroup,
+  PDFRawStream,
+  PDFRef,
+  PDFTextField,
+  StandardFonts,
+  concatTransformationMatrix,
+  decodePDFRawStream,
+  drawObject,
+  popGraphicsState,
+  pushGraphicsState,
+  type PDFField,
+  type PDFFont,
+  type PDFPage,
+  type PDFWidgetAnnotation,
+} from "pdf-lib";
 
 export interface CompressOptions {
   /** The longest side, in pixels, a picture keeps. */
@@ -61,9 +84,69 @@ export async function flattenForm(bytes: Uint8Array): Promise<Uint8Array> {
   if (!doc.catalog.has(PDFName.of("AcroForm"))) return bytes;
   const form = doc.getForm();
   if (!form.getFields().length) return bytes;
-  // The answers' own appearances (as Duckument wrote them) are kept, so they look as they did.
-  form.flatten({ updateFieldAppearances: false });
+  try {
+    // The answers' own appearances (as Duckument wrote them) are kept, so they look as they did.
+    form.flatten({ updateFieldAppearances: false });
+  } catch {
+    // A field without a look of its own (common in real forms) stops pdf-lib: done field by field instead.
+    await flattenEach(doc);
+  }
   return doc.save();
+}
+
+/**
+ * Flattens what pdf-lib can't in one go: a field without a look gets one made from its answer; a
+ * field that still can't be drawn (a broken button) is taken off, so no field is left to change.
+ */
+async function flattenEach(doc: PDFDocument) {
+  const form = doc.getForm();
+  // pdf-lib's own helpers for where a widget is, used as its flatten() uses them.
+  const internal = form as unknown as { findWidgetPage(w: PDFWidgetAnnotation): PDFPage; acroForm: { removeField(f: unknown): void } };
+  let font: PDFFont | undefined;
+  for (const field of form.getFields()) {
+    for (const widget of field.acroField.getWidgets()) {
+      let page: PDFPage;
+      try {
+        page = internal.findWidgetPage(widget);
+      } catch {
+        continue;
+      }
+      let look = widgetLook(field, widget);
+      if (!look && (field instanceof PDFTextField || field instanceof PDFDropdown || field instanceof PDFOptionList)) {
+        try {
+          font ??= await doc.embedFont(StandardFonts.Helvetica);
+          field.updateAppearances(font);
+          look = widgetLook(field, widget);
+        } catch {
+          // Left without a look: only the field goes.
+        }
+      }
+      if (look) {
+        const name = page.node.newXObject("FlatWidget", look);
+        const { x, y } = widget.getRectangle();
+        page.pushOperators(pushGraphicsState(), concatTransformationMatrix(1, 0, 0, 1, x, y), drawObject(name), popGraphicsState());
+      }
+      // The widget off its page, whatever form its entry takes.
+      const annots = page.node.Annots();
+      if (annots) for (let i = annots.size() - 1; i >= 0; i--) if (doc.context.lookup(annots.get(i)) === widget.dict) annots.remove(i);
+    }
+    internal.acroForm.removeField(field.acroField);
+  }
+}
+
+/** The appearance shown for a widget now (for a box, the one for its value), or null if it has none. */
+function widgetLook(field: PDFField, widget: PDFWidgetAnnotation): PDFRef | null {
+  let look: unknown;
+  try {
+    look = widget.getNormalAppearance();
+  } catch {
+    return null; // No appearance at all.
+  }
+  if (look instanceof PDFDict) {
+    const on = field instanceof PDFCheckBox || field instanceof PDFRadioGroup ? (widget.getAppearanceState() ?? PDFName.of("Off")) : null;
+    look = on ? (look.get(on) ?? look.get(PDFName.of("Off"))) : undefined;
+  }
+  return look instanceof PDFRef ? look : null;
 }
 
 /** The PDF made smaller; returns the original bytes if that didn't help. */
