@@ -52,9 +52,9 @@ export async function pickPdf(): Promise<OpenedFile | null> {
   return file ? fromFile(file) : null;
 }
 
-/** The words in a PNG picture, read by Windows' own OCR: text and box in pixels. */
+/** The words in a PNG picture, read by the system's OCR (Windows' own, or Tesseract on Linux): text and box in pixels. */
 export function readTextIn(png: Uint8Array): Promise<[string, number, number, number, number][]> {
-  if (!isDesktop) return Promise.reject(new Error("Reading text in scans needs the Windows app."));
+  if (!isDesktop) return Promise.reject(new Error("Reading text in scans needs the desktop app."));
   return invoke("ocr_image", png);
 }
 
