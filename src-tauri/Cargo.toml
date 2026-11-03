@@ -1,6 +1,6 @@
 [package]
 name = "duckument"
-version = "1.10.2"
+version = "1.11.0"
 description = "A free PDF editor for signing, filling in and marking up documents"
 authors = ["Duckrice"]
 edition = "2021"
